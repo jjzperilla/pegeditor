@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Capacity Pegs – HDD Pricing</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <button id="sidebarSlideToggle"
+        class="sidebar-slide-toggle"
+        aria-expanded="true">
+  ☰ Menu
+</button>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="sidebar-header">Capacity Controls</div>
+      <div class="sidebar-controls">
+        <input type="text" id="newCapacityInput" placeholder="e.g., 30TB">
+        <button id="addNewCapacityBtn">Add New Capacity</button>
+      </div>
+
+      <div class="sidebar-header" style="margin-top: 10px;">Existing Capacities</div>
+      <div class="capacity-list" id="capacityList">
+        <span style="color: #9ca3af; font-size: 13px;">Loading capacities...</span>
+        </div>
+    </aside>
+
+    <main class="main">
+      <header class="page-header">
+        <div>
+          <div class="page-title">Capacity Pegs</div>
+          <p class="page-subtitle">
+            For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
+          </p>
+        </div>
+        <div class="badge">Peg Editor</div>
+      </header>
+<div id="chooseCapacityNotice" class="empty-state">
+  <h3>Please choose a capacity first</h3>
+  <p>Select a capacity from the list to view sales data, peg inputs, and price history.</p>
+</div>
+  <div id="chartsContainer">
+        <div id="pegNameContainer" style="margin: 10px 0;">
+    <label style="font-weight:600;">Configuration Name:</label>
+    <input id="pegNameInput"
+           type="text"
+           placeholder="Enter a PEG name (optional)">
+</div>
+      <section class="content-layout" id="mainEditorLayout">
+        <div class="left-column">
+          <section class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title" id="pegChartTitle">Peg Inputs</div>
+                <div class="card-subtitle">
+                  Bars show weight of each peg point; line points are clickable and represent individual listings.
+                  Click a peg dot to see its full price history.
+                </div>
+              </div>
+              <div class="legend-dots">
+                <div class="legend-item">
+                  <span class="legend-dot sale-price"></span>
+                  <span>Point price</span>
+                </div>
+                <div class="legend-item">
+                  <span class="legend-dot market-price"></span>
+                  <span>Base peg</span>
+                </div>
+                <div class="legend-item">
+                  <span class="legend-dot volume"></span>
+                  <span>Weight (%)</span>
+                </div>
+              </div>
+            </div>
+            <canvas id="pegChart"></canvas>
+          </section>
+
+          <section class="card">
+            <div class="card-header">
+              <div>
+                <div class="card-title" id="pegHistoryTitle">Peg History</div>
+                <div class="card-subtitle">
+                  Click a peg point above to view its daily price history.
+                </div>
+              </div>
+              <div class="controls-row" style="justify-content:flex-end; margin-bottom:0;">
+                <label>
+                  <span>Range:</span>
+                  <select id="historyRangeSelect">
+                    <option value="7" selected>7 days</option>
+                    <option value="14">14 days</option>
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                    <option value="180">180 days</option>
+                    <option value="365">365 days</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div id="pegHistoryMeta">
+              <strong id="pegHistoryLabel">No peg selected</strong>
+              <span id="pegHistoryChannel"></span>
+              <a id="pegHistoryLink" href="#" target="_blank" style="display:none; margin-left:6px;">Open listing</a>
+            </div>
+            <canvas id="pegHistoryChart"></canvas>
+          </section>
+        </div>
+        <aside class="card">
+          <div class="card-header">
+            <div>
+              <div class="card-title" id="summaryTitle">Capacity Peg Snapshot</div>
+              <div class="card-subtitle">Base peg, modifiers, and final buy band for the selected capacity / interface / condition.</div>
+            </div>
+            <button id="savePegBtn" style="display:none;">💾 Save Data</button>
+          </div>
+
+          <div class="meta-grid">
+            <div>
+              <div class="meta-item-label">Base peg price</div>
+              <div class="meta-item-value" id="summaryBasePeg">$0.00</div>
+              <div class="meta-item-help">Weighted from peg inputs.</div>
+            </div>
+            <div>
+              <div class="meta-item-label">Adjusted sale price</div>
+              <div class="meta-item-value" id="summarySuggested">$0.00</div>
+              <div class="meta-item-help">Base peg + total modifiers.</div>
+            </div>
+            <div>
+              <div class="meta-item-label">Raw average</div>
+              <div class="meta-item-value" id="summaryRawAvg">$0.00</div>
+              <div class="meta-item-help">Simple average of all peg prices.</div>
+            </div>
+            <div>
+              <div class="meta-item-label">Modifier total</div>
+              <div class="meta-item-value" id="summaryModifiers">$0.00</div>
+              <div class="meta-item-help">Sum of adds/subtracts.</div>
+            </div>
+            <div>
+              <div class="meta-item-label">Low buy price</div>
+              <div class="meta-item-value" id="summaryLow">$0.00</div>
+              <div class="meta-item-help">Aggressive side of the band.</div>
+            </div>
+            <div>
+              <div class="meta-item-label">High buy price</div>
+              <div class="meta-item-value" id="summaryHigh">$0.00</div>
+              <div class="meta-item-help">Conservative when inventory is tight.</div>
+            </div>
+          </div>
+
+          <div class="controls-row">
+            <label>
+              <span>Interface:</span>
+              <select id="interfaceSelect">
+                <option value="sata">SATA</option>
+                <option value="sas">SAS</option>
+              </select>
+            </label>
+            <label>
+              <span>Condition:</span>
+              <select id="conditionSelect">
+                <option value="new">New</option>
+                <option value="recertified">Recertified</option>
+                <option value="used">Used</option>
+              </select>
+            </label>
+            <label>
+              <span>Inventory:</span>
+              <select id="inventoryMode">
+                <option value="overstocked">Overstocked</option>
+                <option value="balanced" selected>Balanced</option>
+                <option value="low">Low</option>
+                <option value="critical">Critical</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="peg-table-wrapper">
+            <div class="peg-table-title">Peg inputs (editable)</div>
+            <table class="peg-table peg-table-mb">
+              <thead>
+                <tr>
+                  <th style="width: 22%;">Label</th>
+                  <th style="width: 14%;">Channel</th>
+                  <th style="width: 22%;">URL</th>
+                  <th style="width: 12%;">Price</th>
+                  <th style="width: 10%;">Weight</th>
+                  <th style="width: 6%; text-align:center;">&nbsp;</th>
+                </tr>
+              </thead>
+              <tbody id="pegTableBody">
+                </tbody>
+            </table>
+            <button class="peg-add-row" id="addRowBtn">+ Add peg row</button>
+          </div>
+
+          <div class="modifier-wrapper">
+            <div class="peg-table-title">Price modifiers (optional)</div>
+            <table class="peg-table modifier-table">
+              <thead>
+                <tr class="tr-modifier">
+                  <th style="width: 40%;">Reason</th>
+                  <th style="width: 30%;">Amount (+/-)</th>
+                  <th style="width: 10%; text-align:center;">&nbsp;</th>
+                </tr>
+              </thead>
+              <tbody id="modifierTableBody">
+                </tbody>
+            </table>
+            <button class="peg-add-row" id="addModifierBtn">+ Add modifier</button>
+          </div>
+        </aside>
+<div class="bottom-column">
+            <section class="card right-column">
+  <div class="card-header">
+    <div>
+      <div class="card-title" id="salesChartTitle">Select a Capacity</div>
+      <div class="card-subtitle">
+        Bars show units sold; lines show your price vs market average.
+        (Sales table below is editable.)
+      </div>
+    </div>
+
+    <div class="legend-dots">
+      <div class="legend-item">
+        <span class="legend-dot sale-price"></span>
+        <span>Your sale price</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot market-price"></span>
+        <span>Online avg</span>
+      </div>
+      <div class="legend-item">
+        <span class="legend-dot volume"></span>
+        <span>Units sold</span>
+      </div>
+    </div>
+
+    <div class="card-toggle">
+      <button class="chevron-toggle" id="toggleSalesCard" aria-expanded="false">
+      <span class="toggle-text">Show Sales</span>
+      <span class="chevron">▼</span>
+    </button>
+    </div>
+  </div>
+
+
+  <div class="sales-content hidden" id="salesContent">
+    <canvas id="salesChart"></canvas>
+
+    <div class="sales-table-wrapper">
+      <div class="peg-table-title">Sales data history (editable)</div>
+      <table class="peg-table">
+        <thead>
+          <tr>
+            <th style="width: 20%;">Day</th>
+            <th style="width: 25%;">Your sale price</th>
+            <th style="width: 25%;">Market avg</th>
+            <th style="width: 20%;">Units sold</th>
+          </tr>
+        </thead>
+        <tbody id="salesTableBody">
+          <tr>
+            <td colspan="4" style="text-align:center; color: var(--text-muted);">
+              No sales data available.
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</section>
+</div>
+</section>
+</div>
+
+      <section class="card" id="pegDataHistoryCard" style="display: none; margin-top: 20px;">
+        <div class="card-header">
+          <div class="card-title">Peg Data History</div>
+          <div class="card-subtitle" id="historyCardSubtitle">Select a capacity to view past configurations.</div>
+        </div>
+        <button id="addNewPegConfigBtn" class="peg-add-row" style="margin-bottom:10px;">
+    + Add New Peg Configuration
+</button>
+        <div class="peg-table-wrapper" style="margin-top: 0;">
+          <table class="peg-table">
+            <thead>
+              <tr>
+                <th style="width: 10%; text-align: center;">View</th>
+                <th style="width: 20%;">Date Saved</th>
+                <th style="width: 20%;">Peg Name</th>
+                <th style="width: 20%;">Base Peg Price</th>
+                <th style="width: 20%;">Adjusted Price</th>
+                <th style="width: 10%; text-align: center;">Delete</th>
+              </tr>
+            </thead>
+            <tbody id="pegHistoryTableBody">
+              <tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No history available.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      </main>
+  </div>
+<div id="allConditionsModal" class="modal hidden">
+    <div class="modal-content">
+      <h3>All Conditions Exist</h3>
+      <p>
+        All <strong>SATA</strong> and <strong>SAS</strong> configurations for this capacity already exist
+        (New, Used, Recertified).
+        <br><br>
+        Please open <strong>Peg History</strong> to update an existing configuration.
+      </p>
+      <button id="closeAllConditionsModal">OK</button>
+    </div>
+  </div>
+<div id="appAlertModal" class="modal-overlay hidden">
+  <div class="modal-box small">
+    <div class="modal-header">
+      <p id="appAlertTitle">Notice</p>
+    </div>
+
+    <div class="modal-body" id="appAlertMessage"></div>
+
+    <div class="modal-footer">
+      <button id="appAlertOk">OK</button>
+    </div>
+  </div>
+</div>
+<div id="appConfirmModal" class="modal-overlay hidden">
+  <div class="modal-box small">
+    <div class="modal-header">
+      <h3 id="appConfirmTitle">Confirm</h3>
+    </div>
+
+    <div class="modal-body" id="appConfirmMessage"></div>
+
+    <div class="modal-footer">
+      <button id="appConfirmCancel">Cancel</button>
+      <button id="appConfirmOk" class="danger">Delete</button>
+    </div>
+  </div>
+</div>
+<script type="module" src="js/app.js"></script>
+</body>
+</html>
