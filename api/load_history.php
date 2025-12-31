@@ -32,7 +32,7 @@ $stmt = $db->prepare("
         h.peg_name,
         h.base_price,
         h.adjusted_price,
-        h.inventory_mode,
+        h.margin_percent,
         h.saved_at
     FROM peg_history h
     WHERE h.capacity = ?
@@ -46,18 +46,26 @@ $res = $stmt->get_result();
 $history = [];
 
 while ($row = $res->fetch_assoc()) {
-    $history[] = [
-        "id"             => (int)$row["id"],
-        "config_id"      => (int)$row["config_id"],
-        "capacity"       => $row["capacity"],
-        "interface"      => $row["interface"],
-        "condition_type" => $row["condition_type"],
-        "peg_name"       => $row["peg_name"],
-        "base_price"     => (float)$row["base_price"],
-        "adjusted_price" => (float)$row["adjusted_price"],
-        "inventory_mode" => $row["inventory_mode"],
-        "saved_at"       => $row["saved_at"]
-    ];
+    $margin = isset($row["margin_percent"])
+    ? (float)$row["margin_percent"]
+    : 80;
+
+$history[] = [
+    "id"             => (int)$row["id"],
+    "config_id"      => (int)$row["config_id"],
+    "capacity"       => $row["capacity"],
+    "interface"      => $row["interface"],
+    "condition_type" => $row["condition_type"],
+    "peg_name"       => $row["peg_name"],
+    "base_price"     => (float)$row["base_price"],
+    "adjusted_price" => (float)$row["adjusted_price"],
+
+    // ✅ SEND BOTH KEYS
+    "margin_percent" => $margin,
+    "marginPercent"  => $margin,
+
+    "saved_at"       => $row["saved_at"]
+];
 }
 
 /* ===============================

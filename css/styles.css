@@ -157,16 +157,18 @@
       color: var(--text-muted);
     }
 
-    .content-layout {
-          display: none;
+/* DESKTOP ONLY */
+@media (min-width: 769px) {
+  #mainEditorLayout {
     grid-template-columns: 2.3fr 1.4fr;
     grid-column-gap: 10px;
     grid-row-gap: 10px;
-    }
+  }
 
-.left-column { grid-area: 1 / 1 / 2 / 2; }
-.right-column { grid-area: 1 / 2 / 2 / 3; }
-.bottom-column { grid-area: 2 / 1 / 3 / 3; }
+  #mainEditorLayout > .left-column { grid-area: 1 / 1 / 2 / 2; }
+  #mainEditorLayout > aside.card   { grid-area: 1 / 2 / 2 / 3; }
+  #mainEditorLayout > .bottom-column { grid-area: 2 / 1 / 3 / 3; }
+}
 
     .left-column {
       display: flex;
@@ -286,6 +288,9 @@
       letter-spacing: 0.09em;
       color: var(--text-muted);
       margin-bottom: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
     }
 
     .peg-table {
@@ -338,7 +343,7 @@
     /* END NEW STYLES */
 
 
-.peg-add-row, .peg-delete-row  {
+.peg-add-row, .peg-delete-row, .pegTableGenerate, .pegTableExport  {
 display: flex;
     flex-direction: column;
     align-items: center;
@@ -606,6 +611,20 @@ button.danger:hover {
 button#appAlertOk:hover, button#appConfirmCancel:hover {
   background: #c1c1c1;
 }
+/* Editor visibility */
+.editor-hidden {
+  display: none !important;
+}
+
+
+/* Mobile override */
+@media (max-width: 768px) {
+  .editor-visible {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
+}
 
 /** mobile view **/
 @media (max-width: 768px) {
@@ -662,26 +681,6 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
 /* ============================= */
 /* 📱 MOBILE MAIN LAYOUT */
 /* ============================= */
-@media (max-width: 768px) {
-
-  .content-layout {
-    display: flex !important;
-    flex-direction: column;
-    gap: 16px;
-  }
-
-  .left-column,
-  .right-column,
-  .bottom-column {
-    width: 100%;
-  }
-
-  .card {
-    padding: 14px;
-  }
-
-
-}
 /* ============================= */
 /* 📊 MOBILE CHARTS */
 /* ============================= */
@@ -893,4 +892,493 @@ aside.sidebar.collapsed .capacity-list {
     display: flex;
     flex-direction: column;
 }
+}
+/* MOBILE FIX — THIS IS THE KEY */
+@media (max-width: 768px) {
+
+  #mainEditorLayout {
+    display: flex !important;
+    flex-direction: column;
+    gap: 16px;
+  }
+
+  /* kill grid leftovers */
+  #mainEditorLayout > * {
+    grid-area: unset !important;
+  }
+
+  /* 🔼 MOVE SUMMARY TO TOP */
+  #mainEditorLayout > aside.card {
+    order: -1;
+  }
+
+  #mainEditorLayout > .left-column {
+    order: 1;
+  }
+
+  #mainEditorLayout > .bottom-column {
+    order: 2;
+  }
+}
+
+/* main graph */
+#avgPegCard {
+  display: none;
+  flex-direction: column;
+  min-height: 320px;
+}
+
+#avgPegCard .chart-wrap {
+  position: relative;
+  height: 300px;
+}
+
+@media (max-width: 768px) {
+  #avgPegCard .chart-wrap {
+    height: 260px;
+  }
+
+  .card-actions {
+    margin-top: 8px;
+  }
+}
+
+.range-select {
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background: #fff;
+  font-size: 13px;
+}
+.range-select {
+  padding: 4px 8px;
+  font-size: 13px;
+}
+
+.avg-peg-summary {
+  margin-top: 12px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-subtle);
+  font-size: 13px;
+}
+
+.avg-peg-summary .summary-title {
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+.card-header-container{
+  width:70%;
+}
+
+.avg-peg-summary .row {
+  display: flex;
+  justify-content: space-between;
+  padding: 2px 0;
+  border-bottom: 1px solid #e1e1e1;
+}
+/* -------------------------------
+   MOBILE BREAKPOINT
+-------------------------------- */
+@media (max-width: 768px) {
+
+  .range-select {
+    font-size: 14px;
+  }
+
+  .avg-peg-chart-wrap {
+    height: 220px;
+  }
+
+  .avg-peg-summary {
+    font-size: 12px;
+  }
+
+  .avg-peg-summary .row {
+    padding: 3px 0;
+  }
+}
+
+/* ===============================
+   Sidebar Section Dropdowns
+================================ */
+.sidebar-section {
+  margin-bottom: 14px;
+}
+
+.section-header {
+  width: 100%;
+  background: transparent;
+  border: none;
+  padding: 6px 0;
+  color: #9ca3af;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+}
+
+.section-header:hover {
+  color: #e5e7eb;
+}
+
+.section-header .chevron {
+  font-size: 10px;
+  transition: transform 0.2s ease;
+}
+
+.section-body {
+  margin-top: 10px;
+}
+
+.sidebar-section.collapsed .section-body {
+  display: none;
+}
+
+.sidebar-section.collapsed .chevron {
+  transform: rotate(-90deg);
+}
+
+/* Optional helper styles */
+.sidebar-subheader {
+  margin-top: 10px;
+  font-size: 11px;
+  color: #6b7280;
+  text-transform: uppercase;
+}
+
+.sidebar-action-btn {
+  width: 100%;
+  padding: 8px 10px;
+  background: #1f2937;
+  border: 1px solid #374151;
+  border-radius: 6px;
+  color: #f9fafb;
+  cursor: pointer;
+}
+
+.sidebar-action-btn:hover {
+  background: #273449;
+}
+
+
+/* =========================
+   Handsontable Modal – SAFE
+========================= */
+#pegTableModal .modal-box.large {
+  width: 95vw;
+  height: 90vh;
+  max-width: 1400px;
+  display: flex;
+  flex-direction: column;
+}
+
+#pegTableModal .modal-body {
+  flex: 1;
+  overflow: visible !important;
+}
+
+#pegSheet {
+  width: 100%;
+  height: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.htContextMenu,
+.htDropdownMenu,
+.htAutocomplete,
+.handsontableEditor {
+  position: fixed !important;
+  z-index: 999999 !important;
+  pointer-events: auto !important;
+}
+
+/* 🔑 Modal overlay must NOT eat clicks */
+#pegTableModal .modal-overlay {
+  pointer-events: none;
+}
+
+/* 🔑 Modal content still clickable */
+#pegTableModal .modal-box {
+  pointer-events: auto;
+  overflow: visible !important;
+}
+
+.pegTableFooter {
+    margin-left: 20px;
+    margin-bottom: 20px;
+    display: flex;
+    gap: 10px;
+}
+
+.pegTableGenerate, .pegTableExport {
+    padding: 15px;
+    font-size: 13px;
+    font-weight: 600;
+    background: #272727;
+    color: white;
+}
+button#closePegTableModal {
+    background: none;
+    border: none;
+    font-size: 25px;
+  cursor: pointer;
+}
+
+
+/* Table base */
+.handsontable {
+  font-family: Inter, system-ui, -apple-system, Segoe UI, sans-serif;
+  font-size: 13px;
+  color: #1f2937;
+}
+
+/* Column headers */
+.handsontable th {
+  background: linear-gradient(180deg, #f9fafb, #f3f4f6);
+  color: #374151;
+  font-weight: 600;
+  border-bottom: 1px solid #e5e7eb;
+  text-align: center;
+  height: 40px;
+}
+
+/* Row headers */
+.handsontable th.htRowHeader {
+  background: #f9fafb;
+  color: #6b7280;
+  font-weight: 500;
+  border-right: 1px solid #e5e7eb;
+}
+
+/* Cells */
+.handsontable td {
+  background: #ffffff;
+  border-right: 1px solid #f1f5f9;
+  border-bottom: 1px solid #f1f5f9;
+  padding: 8px 10px;
+}
+
+/* Zebra striping */
+.handsontable tbody tr:nth-child(even) td {
+  background: #fcfcfd;
+}
+
+/* Active cell */
+.handsontable td.current {
+  background: #eff6ff !important;
+  outline: 2px solid #3b82f6;
+  outline-offset: -2px;
+}
+
+/* Selected range */
+.handsontable td.area {
+  background: rgba(59, 130, 246, 0.08);
+}
+
+/* Input editor */
+.handsontableInput {
+  font-size: 13px;
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+}
+
+/* Fill handle */
+.handsontable .wtBorder {
+  border-color: #3b82f6 !important;
+}
+
+/* Context menu (right-click) */
+.htContextMenu {
+  background: #ffffff;
+  border-radius: 8px;
+  box-shadow: 0 10px 25px rgba(0,0,0,0.15);
+  border: 1px solid #e5e7eb;
+  z-index: 99999 !important;
+}
+
+.htContextMenu table td {
+  padding: 8px 14px;
+  font-size: 13px;
+  color: #111827;
+}
+
+.htContextMenu table td:hover {
+  background: #f3f4f6;
+}
+
+/* Scrollbars (Chrome) */
+.handsontable ::-webkit-scrollbar {
+  height: 10px;
+  width: 10px;
+}
+
+.handsontable ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+  border-radius: 8px;
+}
+
+.handsontable ::-webkit-scrollbar-track {
+  background: #f8fafc;
+}
+
+.btn-peg-history {
+  font-size: 12px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  background: #ffffff;
+  color: #1f2937;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.btn-peg-history:hover {
+  background: #f3f4f6;
+  border-color: #9ca3af;
+}
+
+.btn-peg-history:active {
+  transform: translateY(1px);
+}
+
+/*peg history */
+#pegHistoryModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9999;
+}
+
+#pegHistoryModal.hidden {
+  display: none;
+}
+
+/* Modal Box */
+#pegHistoryModal .modal-box {
+  background: #ffffff;
+  width: 720px;
+  max-width: 92%;
+  max-height: 90vh;
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 20px 50px rgba(0,0,0,0.25);
+}
+
+#pegHistoryModal .modal-box.large {
+  width: 880px;
+}
+
+/* Header & Footer */
+#pegHistoryModal .modal-header,
+#pegHistoryModal .modal-footer {
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+#pegHistoryModal .modal-header {
+  border-bottom: 1px solid #e5e7eb;
+}
+
+#pegHistoryModal .modal-footer {
+  border-top: 1px solid #e5e7eb;
+}
+
+#pegHistoryModal .modal-header h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: #111827;
+}
+
+#pegHistoryModal .modal-header button {
+  background: none;
+  border: none;
+  font-size: 18px;
+  cursor: pointer;
+  color: #374151;
+}
+
+/* Body */
+#pegHistoryModal .modal-body {
+  padding: 18px;
+  overflow-y: auto;
+}
+
+/* Form */
+#pegHistoryModal .form-group {
+  margin-bottom: 16px;
+}
+
+#pegHistoryModal .label {
+  font-size: 12px;
+  font-weight: 600;
+  display: block;
+  margin-bottom: 4px;
+  color: #374151;
+}
+
+#pegHistoryModal input[type="date"] {
+  padding: 6px 8px;
+  border-radius: 6px;
+  border: 1px solid #d1d5db;
+  font-size: 13px;
+}
+
+/* Status text */
+#pegHistoryModal .date-status {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #6b7280;
+}
+
+/* Buttons */
+#pegHistoryModal .btn-primary {
+  background: #2563eb;
+  color: #ffffff;
+  border: none;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#pegHistoryModal .btn-secondary {
+  background: #ffffff;
+  border: 1px solid #d1d5db;
+  padding: 8px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+#pegHistoryModal .btn-primary:hover {
+  background: #1d4ed8;
+}
+
+#pegHistoryModal .btn-secondary:hover {
+  background: #f3f4f6;
+}
+
+.date-status {
+  margin-top: 8px;
+  font-size: 13px;
+}
+
+.date-status.success {
+    color: #337f4f !important;
+    font-weight: 500;
+}
+
+.date-status.error {
+  color: #dc2626;
 }

@@ -13,13 +13,19 @@ if (!isset($payload['config_id'])) {
     exit;
 }
 
-$config_id = intval($payload['config_id']);
+$config_id = (int)$payload['config_id'];
 
-// -----------------------------
-// LOAD CONFIG
-// -----------------------------
+/* ===============================
+   LOAD CONFIG
+================================ */
 $stmt = $db->prepare("
-    SELECT id, capacity, interface, condition_type, inventory_mode, peg_name
+    SELECT
+        id,
+        capacity,
+        interface,
+        condition_type,
+        peg_name,
+        margin_percent
     FROM peg_configs
     WHERE id = ?
 ");
@@ -28,65 +34,94 @@ $stmt->execute();
 $config = $stmt->get_result()->fetch_assoc();
 
 if (!$config) {
-    echo json_encode([
-        'status' => 'not_found'
-    ]);
+    echo json_encode(['status' => 'not_found']);
     exit;
 }
 
-// -----------------------------
-// LOAD PEG POINTS
-// -----------------------------
+$margin = isset($config['margin_percent'])
+    ? (float)$config['margin_percent']
+    : 80;
+
+/* ===============================
+   LOAD PEG POINTS
+================================ */
 $points = [];
 $res = $db->query("
-    SELECT id, label, channel, url, price, weight
+    SELECT
+        id,
+        label,
+        channel,
+        url,
+        price,
+        qty,
+        weight,
+        created_at
     FROM peg_points
     WHERE config_id = $config_id
+    ORDER BY created_at ASC
 ");
+
 while ($row = $res->fetch_assoc()) {
+    $row['price']      = (float)$row['price'];
+    $row['qty']        = (int)$row['qty'];
+    $row['weight']     = (float)$row['weight'];
+    $row['created_at'] = $row['created_at'];
     $points[] = $row;
 }
 
-// -----------------------------
-// LOAD MODIFIERS
-// -----------------------------
+/* ===============================
+   LOAD MODIFIERS
+================================ */
 $modifiers = [];
 $res = $db->query("
     SELECT id, label, amount
     FROM peg_modifiers
     WHERE config_id = $config_id
+    ORDER BY id ASC
 ");
+
 while ($row = $res->fetch_assoc()) {
+    $row['amount'] = (float)$row['amount'];
     $modifiers[] = $row;
 }
 
-// -----------------------------
-// LOAD SALES DATA
-// -----------------------------
+/* ===============================
+   LOAD SALES DATA
+================================ */
 $sales = [];
 $res = $db->query("
     SELECT day_label, sale_price, market_price, volume
     FROM sales_data
     WHERE config_id = $config_id
+    ORDER BY id ASC
 ");
+
 while ($row = $res->fetch_assoc()) {
+    $row['sale_price']   = (float)$row['sale_price'];
+    $row['market_price'] = (float)$row['market_price'];
+    $row['volume']       = (int)$row['volume'];
     $sales[] = $row;
 }
 
-// -----------------------------
-// RETURN JSON
-// -----------------------------
+/* ===============================
+   RESPONSE
+================================ */
 echo json_encode([
-    'status' => 'success',
-    'config_id' => $config['id'],
-    'capacity' => $config['capacity'],
-    'interface' => $config['interface'],
+    'status'         => 'success',
+    'config_id'      => (int)$config['id'],
+    'capacity'       => $config['capacity'],
+    'interface'      => $config['interface'],
     'condition_type' => $config['condition_type'],
-    'inventoryMode' => $config['inventory_mode'],
-    'peg_name' => $config['peg_name'],
+    'peg_name'       => $config['peg_name'],
+
+    // SEND BOTH (safe + future-proof)
+    'margin_percent' => $margin,
+    'marginPercent'  => $margin,
+
     'peg' => [
-        'points' => $points,
+        'points'    => $points,
         'modifiers' => $modifiers,
-        'sales' => $sales
+        'sales'     => $sales
     ]
 ]);
+

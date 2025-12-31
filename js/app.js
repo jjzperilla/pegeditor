@@ -1,12 +1,8 @@
-console.log('✅ app.js loaded');
-document.addEventListener('DOMContentLoaded', () => {
-  console.log('Toggle button:', document.getElementById('sidebarSlideToggle'));
-  console.log('Sidebar:', document.querySelector('.sidebar'));
-});
 
 // js/app.js
-import * as api from './api.js';
 // modal delete
+const api = window.api;
+
  const appConfirmModal = document.getElementById('appConfirmModal');
 const appConfirmTitle = document.getElementById('appConfirmTitle');
 const appConfirmMessage = document.getElementById('appConfirmMessage');
@@ -75,6 +71,17 @@ function ensurePegHistoryChartVisible() {
     pegHistoryChart.update();
   }
 }
+
+function updateAvgPegCardTitle(capacity) {
+  const el = document.getElementById('avgPegCardTitle');
+  if (!el) return;
+
+  el.textContent = capacity
+    ? `${capacity} - Average PEG Price Over Time`
+    : 'Average PEG Price Over Time';
+}
+
+
 function computePegFromPoints(points = []) {
   if (!points || points.length === 0) {
     return { labels: [], prices: [], weightsPercent: [], suggested: 0, rawAvg: 0 };
@@ -111,21 +118,32 @@ function computePegFromPoints(points = []) {
   return { labels, prices, weightsPercent, suggested, rawAvg };
 }
 
-function computeBandPrices(adjustedSalePrice, inventoryMode) {
-  let lowMultiplier = 0.65;
-  let highMultiplier = 0.75;
-  switch (inventoryMode) {
-    case 'overstocked':
-      lowMultiplier = 0.55; highMultiplier = 0.65; break;
-    case 'low':
-      lowMultiplier = 0.70; highMultiplier = 0.80; break;
-    case 'critical':
-      lowMultiplier = 0.75; highMultiplier = 0.85; break;
-    default:
-      break;
-  }
-  return { low: adjustedSalePrice * lowMultiplier, high: adjustedSalePrice * highMultiplier };
+//function computeBandPrices(adjustedSalePrice, inventoryMode) {
+ // let lowMultiplier = 0.65;
+//  let highMultiplier = 0.75;
+//  switch (inventoryMode) {
+//    case 'overstocked':
+//      lowMultiplier = 0.55; highMultiplier = 0.65; break;
+//    case 'low':
+//      lowMultiplier = 0.70; highMultiplier = 0.80; break;
+//    case 'critical':
+//      lowMultiplier = 0.75; highMultiplier = 0.85; break;
+//    default:
+//      break;
+//  }
+//  return { low: adjustedSalePrice * lowMultiplier, high: adjustedSalePrice * highMultiplier };
+//}
+
+function computeBandPricesFromMargin(salePrice, marginPercent) {
+  const m = Number(marginPercent) / 100;
+  const low = salePrice * m;
+
+  return {
+    low,
+    high: low * 1.05
+  };
 }
+
 
 // --------- DOM refs ----------
 const capacityListEl = document.getElementById('capacityList');
@@ -167,12 +185,22 @@ const summaryLow = document.getElementById('summaryLow');
 const summaryHigh = document.getElementById('summaryHigh');
 
 const pegDataHistoryCard = document.getElementById('pegDataHistoryCard');
+const avgPegCard = document.getElementById('avgPegCard');
 const mainEditorLayout = document.getElementById('mainEditorLayout');
 const historyCardSubtitle = document.getElementById('historyCardSubtitle');
 const pegNameContainer = document.getElementById('pegNameContainer');
 const ALL_INTERFACES = ["sata", "sas"];
 const ALL_CONDITIONS = ["new", "used", "recertified"];
+const marginSelect = document.getElementById('marginPercent');
+const AVG_PEG_COLORS = {
+  'sata|new': '#2563eb',      
+  'sata|used': '#4edbbc',       
+  'sata|recertified': '#a48ff9',
 
+  'sas|new': '#f97316',        
+  'sas|used': '#cdc835',        
+  'sas|recertified': '#217e95'  
+};
 // --------- State ----------
 let capacities = [];
 let currentCapacity = null;
@@ -183,35 +211,11 @@ let salesChart = null;
 let pegChart = null;
 let pegHistoryChart = null;
 let activePegPointIndex = null;
-
-let pegDataState = {}; // structure: pegDataState[capacity] = { points:[], modifiers:[], sales:[], inventoryMode: 'balanced', config_id }
-let pegHistoryByCapacity = {}; // will be populated by server-side history endpoint if implemented
-
-function allInterfaceConditionCombosExist(capacity) {
-  const history = pegHistoryByCapacity[capacity] || [];
-
-  // Build a set like: "sata|new", "sas|used"
-  const existingCombos = new Set(
-    history.map(h =>
-      `${String(h.interface).toLowerCase()}|${String(h.condition_type).toLowerCase()}`
-    )
-  );
-
-  // Check every possible combination
-  for (const iface of ALL_INTERFACES) {
-    for (const cond of ALL_CONDITIONS) {
-      const key = `${iface}|${cond}`;
-      if (!existingCombos.has(key)) {
-        return false; // ❗ at least one slot still available
-      }
-    }
-  }
-
-  return true; // 🔒 all 6 exist
-}
-
-
-
+let avgPegChart = null;
+let pegDataState = {}; 
+let pegHistoryByCapacity = {};
+let activePegDate = null;
+let modalPegDraft = null;
 
 function getCurrentPegBlock() {
   if (!currentCapacity) return null;
@@ -221,7 +225,7 @@ function getCurrentPegBlock() {
       points: [],
       modifiers: [],
       sales: defaultSalesData(),
-      inventoryMode: 'balanced',
+      marginPercent: pegDataState[currentCapacity]?.marginPercent ?? undefined,
       config_id: window.currentConfigId ?? null
     };
   }
@@ -378,14 +382,14 @@ function createPegChart(initialPeg) {
 
   const block = getCurrentPegBlock();
   if (!block || !block.points || !block.points[idx]) {
-    console.warn('Clicked index has no matching peg point:', idx);
+    ////console.warn('Clicked index has no matching peg point:', idx);
     return;
   }
 
   //SET ACTIVE INDEX
   activePegPointIndex = idx;
 
-  console.log('Clicked point object:', block.points[idx]);
+  ////console.log('Clicked point object:', block.points[idx]);
 
   showPegHistoryFromDatabase(idx);
 
@@ -453,7 +457,7 @@ function renderCapacityButtons() {
     return;
   }
 
-  // ✅ SORT LOW → HIGH (GB-normalized)
+  // SORT LOW → HIGH (GB-normalized)
   [...capacities]
     .sort((a, b) => capacityToNumber(a) - capacityToNumber(b))
     .forEach(cap => {
@@ -480,7 +484,7 @@ function renderCapacityButtons() {
         else if (peg.suggested < peg.rawAvg) status += ' (Low)';
         else status += ' (Avg)';
       } catch (e) {
-        console.warn('Status calc failed for', cap, e);
+        //console.warn('Status calc failed for', cap, e);
       }
 
       btn.innerHTML =
@@ -494,26 +498,48 @@ function renderCapacityButtons() {
 
 function renderSalesTable(cap) {
   salesTableBody.innerHTML = '';
-  const data = (pegDataState[cap] && pegDataState[cap].sales && pegDataState[cap].sales.length)
-    ? pegDataState[cap].sales
-    : defaultSalesData();
+  if (!pegDataState[cap]) return;
+
+  // LOCK SALES STATE
+  if (!Array.isArray(pegDataState[cap].sales)) {
+    pegDataState[cap].sales = defaultSalesData();
+  }
+
+  const data = pegDataState[cap].sales;
+
   data.forEach((row, index) => {
     const tr = document.createElement('tr');
     tr.dataset.index = index;
+
     tr.innerHTML = `
-      <td>${row.day_label ?? (['Mon','Tue','Wed','Thu','Fri','Sat','Sun'][index] || `Day ${index+1}`)}</td>
-      <td><input type="number" step="0.01" data-field="salePrice" value="${row.sale_price ?? ''}"></td>
-      <td><input type="number" step="0.01" data-field="marketPrice" value="${row.market_price ?? ''}"></td>
-      <td><input type="number" step="1" data-field="volume" value="${row.volume ?? ''}"></td>
+      <td>${row.day_label}</td>
+      <td><input type="number" step="0.01" data-field="salePrice" value="${row.sale_price ?? 0}"></td>
+      <td><input type="number" step="0.01" data-field="marketPrice" value="${row.market_price ?? 0}"></td>
+      <td><input type="number" step="1" data-field="volume" value="${row.volume ?? 0}"></td>
     `;
+
     salesTableBody.appendChild(tr);
   });
 }
 
 function defaultSalesData() {
-  const labels = ['Mon','Tue','Wed','Thu','Fri','Sat','Sun'];
-  return labels.map(l => ({ day_label: l, sale_price: 0, market_price: 0, volume: 0 }));
+  const today = new Date();
+  const labels = [];
+
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today);
+    d.setDate(today.getDate() - i);
+    labels.push(d.toISOString().slice(0, 10));
+  }
+
+  return labels.map(d => ({
+    day_label: d,
+    sale_price: 0,
+    market_price: 0,
+    volume: 0
+  }));
 }
+
 
 function renderPegTable(cap, iface, cond) {
   pegTableBody.innerHTML = '';
@@ -527,6 +553,7 @@ function renderPegTable(cap, iface, cond) {
       <td><input type="text" data-field="channel" value="${escapeHtml(p.channel ?? '')}"></td>
       <td><input type="url" data-field="url" value="${escapeHtml(p.url ?? '')}"></td>
       <td><input type="number" step="0.01" data-field="price" value="${p.price == 0 ? '' : (p.price ?? '')}"></td>
+      <td><input type="number" step="1" data-field="qty" value="${p.qty == 0 ? '' : (p.qty ?? '')}"></td>
       <td><input type="number" step="0.01" min="0" max="1" data-field="weight" value="${p.weight == 0 ? '' : (p.weight ?? '')}"></td>
       <td class="row-actions" style="text-align:center;"><button data-action="deleteRow" title="Delete peg">X</button></td>
     `;
@@ -538,13 +565,13 @@ tr.addEventListener('click', (e) => {
 
   const block = getCurrentPegBlock();
   if (!block || !block.points || !block.points[idx]) {
-    console.warn('Row click but no peg point:', idx);
+    ////console.warn('Row click but no peg point:', idx);
     return;
   }
 
   activePegPointIndex = idx;
 
-  console.log('Clicked point object:', block.points[idx]);
+  ////console.log('Clicked point object:', block.points[idx]);
 
   showPegHistoryFromDatabase(idx);
 
@@ -575,7 +602,7 @@ function renderPegHistoryTable(cap) {
 
     if (!history.length) {
         pegHistoryTableBody.innerHTML =
-            `<tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No history available.</td></tr>`;
+            `<tr><td colspan="8" style="text-align:center; color: var(--text-muted);">No history available.</td></tr>`;
         return;
     }
 
@@ -590,11 +617,13 @@ function renderPegHistoryTable(cap) {
 
             <td>${h.peg_name ? escapeHtml(h.peg_name) : '<span style="color:#9ca3af;">(No name)</span>'}</td>
 
-            <td>${formatMoney(h.base_price)}
+            <td>${formatMoney(h.base_price)} 
                 (${(h.interface?.toUpperCase?.() ?? '')} / ${capitalize(h.condition_type ?? '')})
             </td>
 
             <td>${formatMoney(h.adjusted_price)}</td>
+            <td>${formatMoney(h.adjusted_price * (h.margin_percent / 100))}</td>
+             <td>${formatMoney(h.adjusted_price * (h.margin_percent / 100) * 1.05)}</td>
 
             <td style="text-align:center; justify-items: center;">
                 <button class="peg-delete-row" data-action="deleteHistory" data-index="${idx}">Delete</button>
@@ -616,13 +645,30 @@ function updateSummary(cap) {
     summaryHigh.textContent = '$0.00';
     return;
   }
-  const points = pegDataState[cap]?.points || [];
-  const { suggested, rawAvg } = computePegFromPoints(points);
-  const modifierTotal = (pegDataState[cap]?.modifiers || []).reduce((s, m) => s + (Number(m.amount) || 0), 0);
-  const adjustedSalePrice = suggested + modifierTotal;
-  const mode = pegDataState[cap]?.inventoryMode || 'balanced';
-  const band = computeBandPrices(adjustedSalePrice, mode);
 
+  const block = pegDataState[cap] || {};
+
+  const points = block.points || [];
+  const { suggested, rawAvg } = computePegFromPoints(points);
+
+  const modifierTotal = (block.modifiers || [])
+    .reduce((s, m) => s + (Number(m.amount) || 0), 0);
+
+  const adjustedSalePrice = suggested + modifierTotal;
+
+  // NEW: margin % (default 80)
+  const marginPercent =
+  Number.isFinite(Number(block.marginPercent))
+    ? Number(block.marginPercent)
+    : 80;
+
+  // Margin-based band calculation
+  const band = computeBandPricesFromMargin(
+    adjustedSalePrice,
+    marginPercent
+  );
+
+  // ---- UI updates ----
   summaryBasePeg.textContent = formatMoney(suggested);
   summarySuggested.textContent = formatMoney(adjustedSalePrice);
   summaryRawAvg.textContent = formatMoney(rawAvg);
@@ -631,6 +677,7 @@ function updateSummary(cap) {
   summaryHigh.textContent = formatMoney(band.high);
 }
 
+
 // --------- Utilities ----------
 function escapeHtml(s) {
   if (!s) return '';
@@ -638,14 +685,6 @@ function escapeHtml(s) {
 }
 function capitalize(s) { if (!s) return ''; return String(s).charAt(0).toUpperCase() + String(s).slice(1); }
 
-// --------- Peg history / point history display ---------- //
-
-
-function showPegHistory(index) {
-  if (!currentCapacity) return;
-  const point = (pegDataState[currentCapacity]?.points || [])[index];
-  updatePegHistoryChartWithPoint(point);
-}
 
 // --------- Data loading & sync ----------
 async function loadCapacities() {
@@ -655,7 +694,7 @@ async function loadCapacities() {
     capacities = Array.from(new Set(capacities || []));
     renderCapacityButtons();
   } catch (err) {
-    console.error(err);
+    //console.error(err);
     capacityListEl.innerHTML = `<span style="color: #f87171; font-size: 13px;">Error: ${err.message}</span>`;
   }
 }
@@ -666,58 +705,115 @@ async function loadCapacities() {
  */
 async function fetchPegDataFor(cap, iface, cond) {
   if (!cap) return;
+
   try {
     const data = await api.fetchPegData(cap, iface, cond);
-    // If server says not_found, initialize empty structure
-    if (!data || data.status === 'not_found') {
-      pegDataState[cap] = { points: [], modifiers: [], sales: defaultSalesData(), inventoryMode: 'balanced', config_id: null };
-    } else if (data.status === 'success') {
-      // Normalize data into state shape
-      const peg = data.peg || {};
-     const points = (peg.points || []).map(p => ({
-  id: p.id ?? null,   // VERY IMPORTANT
-  label: p.label ?? '',
-  channel: p.channel ?? '',
-  url: p.url ?? '',
-  price: Number(p.price) || 0,
-  weight: Number(p.weight) || 0
-}));
 
-      const modifiers = (peg.modifiers || []).map(m => ({ id: m.id ?? null, label: m.label ?? '', amount: Number(m.amount) || 0 }));
-      const sales = (peg.sales && peg.sales.length) ? peg.sales.map(s => ({
-        day_label: s.day_label ?? s.dayLabel ?? '',
-        sale_price: Number(s.sale_price ?? s.salePrice ?? 0) || 0,
-        market_price: Number(s.market_price ?? s.marketPrice ?? 0) || 0,
-        volume: Number(s.volume ?? 0) || 0
-      })) : defaultSalesData();
+    // RESOLVE MARGIN — SINGLE SOURCE OF TRUTH
+    const resolvedMargin =
+  Number.isFinite(Number(data?.margin_percent))
+    ? Number(data.margin_percent)
+    : Number.isFinite(Number(data?.marginPercent))
+      ? Number(data.marginPercent)
+      : Number.isFinite(Number(pegDataState[cap]?.marginPercent))
+        ? Number(pegDataState[cap].marginPercent)
+        : 80;
+
+    if (!data || data.status === 'not_found') {
+      pegDataState[cap] = {
+        points: [],
+        modifiers: [],
+        sales: defaultSalesData(),
+        marginPercent: resolvedMargin,
+        config_id: window.currentConfigId ?? null
+      };
+
+    } else if (data.status === 'success') {
+      const peg = data.peg || {};
+
+      const points = (peg.points || []).map(p => ({
+        id: p.id ?? null,
+        label: p.label ?? '',
+        channel: p.channel ?? '',
+        url: p.url ?? '',
+        price: Number(p.price) || 0,
+        qty: Number(p.qty) || 0,
+        weight: Number(p.weight) || 0
+      }));
+
+      const modifiers = (peg.modifiers || []).map(m => ({
+        id: m.id ?? null,
+        label: m.label ?? '',
+        amount: Number(m.amount) || 0
+      }));
+
+      const sales = (peg.sales && peg.sales.length)
+        ? peg.sales.map(s => ({
+            day_label: s.day_label ?? s.dayLabel ?? '',
+            sale_price: Number(s.sale_price ?? s.salePrice ?? 0),
+            market_price: Number(s.market_price ?? s.marketPrice ?? 0),
+            volume: Number(s.volume ?? 0)
+          }))
+        : defaultSalesData();
 
       pegDataState[cap] = {
-  points,
-  modifiers,
-  sales,
-  inventoryMode: data.inventoryMode || 'balanced',
-  config_id: window.currentConfigId ?? data.config_id ?? null
-};
+        points,
+        modifiers,
+        sales,
+        marginPercent: resolvedMargin,
+        config_id: window.currentConfigId ?? data.config_id ?? null
+      };
+
       pegNameContainer.style.display = 'flex';
-      document.getElementById("pegNameInput").value = data.peg_name || "";
+      document.getElementById('pegNameInput').value = data.peg_name || '';
+      if (typeof resolvedMargin === 'number') {
+  pegDataState[cap].marginPercent = resolvedMargin;
+
+  if (marginSelect) {
+    marginSelect.value = String(resolvedMargin);
+  }
+}
+      
+      //console.log('API margin_percent:', data?.margin_percent);
+//console.log('API marginPercent:', data?.marginPercent);
+
     } else {
-      // unexpected response
-      pegDataState[cap] = { points: [], modifiers: [], sales: defaultSalesData(), inventoryMode: 'balanced', config_id: null };
+      pegDataState[cap] = {
+        points: [],
+        modifiers: [],
+        sales: defaultSalesData(),
+        marginPercent: resolvedMargin,
+        config_id: window.currentConfigId ?? null
+      };
     }
 
-    // refresh UI for selected capacity
     if (cap === currentCapacity) {
       refreshUI(cap, iface, cond);
     } else {
       renderCapacityButtons();
     }
+
   } catch (err) {
-    console.error('Error fetching peg data:', err);
-    // fallback to empty
-    pegDataState[cap] = { points: [], modifiers: [], sales: defaultSalesData(), inventoryMode: 'balanced', config_id: null };
-    if (cap === currentCapacity) refreshUI(cap, iface, cond);
+    //console.error('Error fetching peg data:', err);
+
+    // SAFE FALLBACK (DO NOT TOUCH DB VALUES)
+    pegDataState[cap] = {
+      points: [],
+      modifiers: [],
+      sales: defaultSalesData(),
+      marginPercent: pegDataState[cap]?.marginPercent ?? 80,
+      config_id: window.currentConfigId ?? null
+    };
+
+    if (cap === currentCapacity) {
+      refreshUI(cap, iface, cond);
+    }
   }
+
+  //console.log('FINAL MARGIN:', pegDataState[cap]?.marginPercent);
 }
+
+
 
 // --------- Save
 async function saveCurrentPegData() {
@@ -736,19 +832,45 @@ async function saveCurrentPegData() {
     currentConditionKey
   );
 
-  const payload = {
-    config_id: resolvedConfigId, // ✅ null = create, number = update
-    capacity: currentCapacity,
-    interface: currentInterfaceKey,
-    condition: currentConditionKey,
-    peg_name: document.getElementById("pegNameInput").value || null,
-    peg: {
-      points: state.points,
-      modifiers: state.modifiers,
-      sales: state.sales
-    },
-    inventoryMode: state.inventoryMode
-  };
+const payload = {
+  capacity: currentCapacity,
+  interface: currentInterfaceKey,
+  condition: currentConditionKey,
+  peg_name: pegNameInput.value || null,
+  marginPercent: pegDataState[currentCapacity].marginPercent,
+
+  peg: {
+    points: state.points.map(p => ({
+      id: p.id ?? null,
+      label: p.label ?? '',
+      channel: p.channel ?? '',
+      url: p.url ?? '',
+      price: Number(p.price) || 0,
+      qty: Number(p.qty) || 0,
+      weight: Number(p.weight) || 0,
+
+      // IMPORTANT: ensure DATETIME format
+      created_at: p.created_at
+        ? p.created_at.replace('T', ' ').slice(0, 19)
+        : new Date().toISOString().slice(0, 19).replace('T', ' ')
+    })),
+
+    modifiers: state.modifiers.map(m => ({
+      id: m.id ?? null,
+      label: m.label ?? '',
+      amount: Number(m.amount) || 0
+    })),
+
+    sales: state.sales.map(s => ({
+      day_label: s.day_label ?? '',
+      sale_price: Number(s.sale_price) || 0,
+      market_price: Number(s.market_price) || 0,
+      volume: Number(s.volume) || 0
+    }))
+  }
+};
+
+
 
   try {
     savePegBtn.disabled = true;
@@ -762,7 +884,7 @@ async function saveCurrentPegData() {
     currentInterfaceKey,
     currentConditionKey
   );
-
+        
       // reload history
       const result = await api.loadHistory(currentCapacity);
   pegHistoryByCapacity[currentCapacity] = result.history || [];
@@ -778,10 +900,52 @@ async function saveCurrentPegData() {
   }
 }
 
+function createOrRecreateAvgPegChart() {
+  const canvas = document.getElementById('avgPegChart');
+  if (!canvas) {
+    //console.error('avgPegChart canvas not found');
+    return;
+  }
+
+  // DESTROY OLD CHART (if exists)
+  if (avgPegChart && typeof avgPegChart.destroy === 'function') {
+    avgPegChart.destroy();
+    avgPegChart = null;
+  }
+
+  const ctx = canvas.getContext('2d');
+
+  avgPegChart = new Chart(ctx, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: []
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom' }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: 'Date' }
+        },
+        y: {
+          title: { display: true, text: 'Average Peg Price' }
+        }
+      }
+    }
+  });
+
+  //console.log('avgPegChart created');
+}
 
 
 // --------- UI interactions and listeners ----------
 async function fetchAndSelectPeg(capacityKey) {
+  updateAvgPegCardTitle(capacityKey);
     hideEditorOnMobile();
     showChartsState();
   document.querySelectorAll('.capacity-btn').forEach(b => b.classList.remove('active'));
@@ -790,6 +954,7 @@ async function fetchAndSelectPeg(capacityKey) {
   if (btn) btn.classList.add('active');
 
   currentCapacity = capacityKey;
+
 // Auto-collapse sidebar after selection (mobile + desktop)
 const sidebar = document.querySelector('.sidebar');
 
@@ -801,7 +966,11 @@ if (sidebar && window.innerWidth <= 768) {
   mainEditorLayout.style.display = 'none';
   pegDataHistoryCard.style.display = 'block';
   savePegBtn.style.display = 'none';
+  avgPegCard.style.display = 'flex';
+createOrRecreateAvgPegChart();
 
+const days = Number(document.getElementById('avgPegRange')?.value || 30);
+await loadAvgPegByCombo(currentCapacity, days);
   salesChartTitle.textContent = `${capacityKey} Selected`;
   historyCardSubtitle.textContent = `Past configurations for ${capacityKey}. Select one to load the editor.`;
 
@@ -816,15 +985,25 @@ pegNameContainer.style.display = 'none';
 
 async function loadSelectedHistory(capacityKey, historyIndex) {
     showEditor();
+  updateAvgPegCardTitle(capacityKey);
+
     const history = pegHistoryByCapacity[capacityKey] || [];
     const selected = history[historyIndex];
+  
+  if (pegDataState[capacityKey]) {
+    pegDataState[capacityKey].marginPercent =
+  typeof selected.marginPercent === 'number'
+    ? selected.marginPercent
+    : pegDataState[capacityKey]?.marginPercent ?? null;
+}
+  
     if (!selected) return;
 
     currentCapacity = capacityKey;
     currentInterfaceKey = selected.interface;
     currentConditionKey = selected.condition_type;
 
-    // ✅ THIS IS THE KEY
+    //THIS IS THE KEY
     window.currentConfigId = Number(selected.config_id);
     window.originalInterface = selected.interface;
     window.originalCondition = selected.condition_type;
@@ -861,8 +1040,23 @@ pegTableBody.addEventListener('input', (e) => {
   if (!points[idx]) return;
 
   let val = input.value;
-  if (field === 'price' || field === 'weight') val = val === '' ? 0 : Number(val);
-  points[idx][field] = val;
+if (field === 'price') {
+  val = val === '' ? 0 : Number(val);
+}
+
+if (field === 'weight') {
+  // IMPORTANT: preserve existing value if input is empty
+  val = val === ''
+    ? (points[idx].weight ?? 1)
+    : Math.max(0, Number(val));
+}
+
+if (field === 'qty') {
+  val = val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0);
+}
+
+points[idx][field] = val;
+
 
   if (field === 'price') {
     // ensure a history placeholder exists for front-end charting if server didn't provide it
@@ -917,18 +1111,33 @@ modifierTableBody.addEventListener('click', (e) => {
 
 salesTableBody.addEventListener('input', (e) => {
   if (!currentCapacity) return;
+
   const input = e.target;
   const field = input.dataset.field;
   if (!field) return;
+
   const row = input.closest('tr');
-  if (!row) return;
   const idx = Number(row.dataset.index);
-  if (!pegDataState[currentCapacity]) pegDataState[currentCapacity] = { points: [], modifiers: [], sales: defaultSalesData(), inventoryMode: 'balanced', config_id: null };
-  if (!pegDataState[currentCapacity].sales[idx]) pegDataState[currentCapacity].sales[idx] = { day_label: row.children[0].textContent, sale_price: 0, market_price: 0, volume: 0 };
-  let val = input.value === '' ? 0 : Number(input.value);
-  pegDataState[currentCapacity].sales[idx][field === 'salePrice' ? 'sale_price' : field === 'marketPrice' ? 'market_price' : 'volume'] = val;
+
+  const state = pegDataState[currentCapacity];
+  if (!state.sales[idx]) {
+    state.sales[idx] = {
+      day_label: row.children[0].textContent,
+      sale_price: 0,
+      market_price: 0,
+      volume: 0
+    };
+  }
+
+  const val = input.value === '' ? 0 : Number(input.value);
+
+  if (field === 'salePrice') state.sales[idx].sale_price = val;
+  if (field === 'marketPrice') state.sales[idx].market_price = val;
+  if (field === 'volume') state.sales[idx].volume = val;
+
   updateSalesChart(currentCapacity);
 });
+
 
 // add row & modifier buttons
 addRowBtn.addEventListener('click', () => {
@@ -941,6 +1150,7 @@ addRowBtn.addEventListener('click', () => {
     channel: '',
     url: '',
     price: base,
+    qty: 1,
     weight: 0.1,
     history: generateSimpleHistory(base)
   });
@@ -967,7 +1177,7 @@ addNewCapacityBtn.addEventListener('click', async () => {
       appAlert("Capacity added!");
       await loadCapacities(); // refresh list
       newCapacityInput.value = "";
-  }
+  } 
   else if (result.status === "exists") {
       appAlert("Capacity already exists in database.");
   }
@@ -984,9 +1194,27 @@ document.getElementById('pegHistoryTableBody').addEventListener('click', async (
       const idx = Number(e.target.dataset.index);
       if (!currentCapacity) return;
       loadSelectedHistory(currentCapacity, idx);
+      avgPegCard.style.display ='none';
       return;
   }
 
+  async function reloadAvgPegChart(capacity, days) {
+  if (!capacity) return;
+
+  // Destroy safely
+  if (avgPegChart) {
+    avgPegChart.destroy();
+    avgPegChart = null;
+  }
+
+  // Recreate empty shell
+  createOrRecreateAvgPegChart();
+
+  // Reload data
+  await loadAvgPegByCombo(capacity, days);
+}
+
+  
   // DELETE
   if (e.target.dataset.action === 'deleteHistory') {
       const idx = Number(e.target.dataset.index);
@@ -1007,7 +1235,7 @@ document.getElementById('pegHistoryTableBody').addEventListener('click', async (
   const res = await api.loadHistory(currentCapacity);
   pegHistoryByCapacity[currentCapacity] = res.history || [];
 
-  // 🔑 RESET STATE AFTER DELETE
+  // RESET STATE AFTER DELETE
   window.currentConfigId = null;
   isCreatingNewConfig = false;
 
@@ -1016,6 +1244,10 @@ document.getElementById('pegHistoryTableBody').addEventListener('click', async (
   window.originalCondition = null;
 
   renderPegHistoryTable(currentCapacity);
+  const days =
+    Number(document.getElementById('avgPegRange')?.value) || 30;
+
+  await reloadAvgPegChart(currentCapacity, days);
 } else {
           appAlert("Delete failed: " + result.message);
       }
@@ -1028,17 +1260,27 @@ document.getElementById('pegHistoryTableBody').addEventListener('click', async (
 
 
 // inventory change
-inventoryModeSelect.addEventListener('change', () => {
+//inventoryModeSelect.addEventListener('change', () => {
+ // if (!currentCapacity) return;
+//  pegDataState[currentCapacity] = pegDataState[currentCapacity] || { points: [], modifiers: [], sales: defaultSalesData(), inventoryMode: 'balanced', config_id: null };
+//  pegDataState[currentCapacity].inventoryMode = inventoryModeSelect.value;
+//  updateSummaryUI(currentCapacity);
+//});
+
+marginSelect.addEventListener('change', () => {
   if (!currentCapacity) return;
-  pegDataState[currentCapacity] = pegDataState[currentCapacity] || { points: [], modifiers: [], sales: defaultSalesData(), inventoryMode: 'balanced', config_id: null };
-  pegDataState[currentCapacity].inventoryMode = inventoryModeSelect.value;
+
+  const margin = Number(marginSelect.value) || 80;
+  pegDataState[currentCapacity].marginPercent = margin;
+
   updateSummaryUI(currentCapacity);
 });
+
 
 // history range change
 historyRangeSelect.addEventListener('change', async () => {
   if (activePegPointIndex === null) return;
-    showPegHistoryFromDatabase(activePegPointIndex);
+    showPegHistoryFromDatabase(activePegPointIndex);    
 });
 // save
 savePegBtn.addEventListener('click', saveCurrentPegData);
@@ -1139,7 +1381,7 @@ function refreshUI(cap, iface, cond) {
 
   interfaceSelect.value = currentInterfaceKey;
   conditionSelect.value = currentConditionKey;
-  inventoryModeSelect.value = pegDataState[cap]?.inventoryMode || 'balanced';
+ //inventoryModeSelect.value = pegDataState[cap]?.inventoryMode || 'balanced';
 
   updateSalesChart(cap);
   renderSalesTable(cap);
@@ -1149,19 +1391,24 @@ function refreshUI(cap, iface, cond) {
   renderModifierTable(cap);
   renderCapacityButtons();
 
-
+  if (marginSelect && pegDataState[cap]?.marginPercent != null) {
+  marginSelect.value = pegDataState[cap].marginPercent;
+}
+  
+    
     if (activePegPointIndex !== null) {
   showPegHistoryFromDatabase(activePegPointIndex);
 }
 
   const isEditorVisible = mainEditorLayout.style.display !== 'none';
   savePegBtn.style.display = currentCapacity && isEditorVisible ? 'inline-block' : 'none';
-// 🔁 restore peg history after redraw
+// restore peg history after redraw
 if (
   activePegPointIndex !== null &&
   pegDataState[currentCapacity]?.points?.[activePegPointIndex]?.id
 ) {
   showPegHistoryFromDatabase(activePegPointIndex);
+  initPegSheet(pegDataState[cap]?.points || []);
 }
 
 }
@@ -1175,7 +1422,7 @@ async function handleInterfaceOrConditionChange() {
   const key = `${norm(currentInterfaceKey)}|${norm(currentConditionKey)}`;
 
   if (map[key]) {
-    // 🔁 EXISTING CONFIG → LOAD
+    // EXISTING CONFIG → LOAD
     isCreatingNewConfig = false;
     window.currentConfigId = map[key];
 
@@ -1190,12 +1437,13 @@ async function handleInterfaceOrConditionChange() {
     window.currentConfigId = null;
 
     pegDataState[currentCapacity] = {
-      points: [],
-      modifiers: [],
-      sales: defaultSalesData(),
-      inventoryMode: 'balanced',
-      config_id: null
-    };
+  points: [],
+  modifiers: [],
+  sales: defaultSalesData(),
+  marginPercent: pegDataState[currentCapacity]?.marginPercent ?? undefined,
+  config_id: null
+};
+
   }
 
   refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey);
@@ -1213,19 +1461,16 @@ function generateSimpleHistory(base) {
   return arr;
 }
 
+
 // --------- Init
 async function init() {
+pegDataHistoryCard.style.display = 'none';
 hideEditorOnMobile();
 showChooseCapacityState();
   // create empty charts so layout sizes are correct
   salesChart = createSalesChart({ labels: [''], salePrice: [0], marketPrice: [0], volume: [0] });
   pegChart = createPegChart({ labels: [], prices: [], weightsPercent: [], suggested: 0 });
   pegHistoryChart = createPegHistoryChart();
-
-  // initially show main editor
-  mainEditorLayout.style.display = 'grid';
-  pegDataHistoryCard.style.display = 'none';
-
   await loadCapacities();
 
   // If there is at least one capacity, optionally auto-select first (or leave user to click)
@@ -1233,36 +1478,15 @@ showChooseCapacityState();
   // if (capacities[0]) fetchAndSelectPeg(capacities[0]);
 }
 
-window.addEventListener('DOMContentLoaded', init);
 
-// expose a small API to console for debugging
+
+window.addEventListener('DOMContentLoaded', init);
+// expose a small API to //console for debugging
 window._pegEditor = {
   state: () => ({ capacities, currentCapacity, pegDataState }),
   refresh: () => refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey),
   fetchPegDataFor
 };
-
-
-function updatePegHistoryMeta(point, index) {
-  const ifaceLabel = currentInterfaceKey.toUpperCase();
-  const pointLabel = point.label || `Point ${index + 1}`;
-
-  pegHistoryTitle.textContent =
-    `Peg history – ${currentCapacity} ${ifaceLabel} – ${pointLabel}`;
-
-  pegHistoryLabelEl.textContent = pointLabel;
-  pegHistoryChannelEl.textContent = point.channel ? `– ${capitalize(point.channel)}` : '';
-
-  if (point.url) {
-    pegHistoryLinkEl.style.display = 'inline-block';
-    pegHistoryLinkEl.href = point.url;
-  } else {
-    pegHistoryLinkEl.style.display = 'none';
-  }
-}
-
-
-
 
 
 function clearPegHistory(message = 'No history') {
@@ -1278,9 +1502,9 @@ function clearPegHistory(message = 'No history') {
   pegHistoryLinkEl.style.display = 'none';
 }
 async function showPegHistoryFromDatabase(pointIndex = activePegPointIndex) {
-  console.log('--- showPegHistoryFromDatabase ---');
-  console.log('currentCapacity:', currentCapacity);
-  console.log('activePegPointIndex:', pointIndex);
+  //console.log('--- showPegHistoryFromDatabase ---');
+  //console.log('currentCapacity:', currentCapacity);
+  //console.log('activePegPointIndex:', pointIndex);
 
   if (!currentCapacity || pointIndex === null) {
     return;
@@ -1293,8 +1517,8 @@ async function showPegHistoryFromDatabase(pointIndex = activePegPointIndex) {
     return;
   }
 
-  console.log('Resolved point object:', point);
-  console.log('point.id:', point.id, 'type:', typeof point.id);
+  //console.log('Resolved point object:', point);
+  //console.log('point.id:', point.id, 'type:', typeof point.id);
 
   const days = Number(historyRangeSelect.value) || 30;
 
@@ -1311,12 +1535,12 @@ const FETCH_MULTIPLIER =
       days * FETCH_MULTIPLIER
     );
   } catch (err) {
-    console.error('History API failed:', err);
+    //console.error('History API failed:', err);
     clearPegHistory('Failed to load history');
     return;
   }
 
-  console.log('Peg history API response:', res);
+  //console.log('Peg history API response:', res);
 
   if (!res || !Array.isArray(res.history) || res.history.length === 0) {
     clearPegHistory('No history found');
@@ -1395,16 +1619,6 @@ function findFirstMissingCombo(capacity) {
   return null;
 }
 
-
-
-function updatePegHistoryChartWithData(labels, prices) {
-  if (!pegHistoryChart) return;
-  pegHistoryChart.data.labels = labels;
-  pegHistoryChart.data.datasets[0].data = prices;
-  pegHistoryChart.update();
-}
-
-
 addNewPegConfigBtn.addEventListener('click', () => {
 showEditor();
   if (!currentCapacity) {
@@ -1434,7 +1648,7 @@ showEditor();
     points: [],
     modifiers: [],
     sales: defaultSalesData(),
-    inventoryMode: 'balanced',
+    marginPercent: pegDataState[currentCapacity]?.marginPercent ?? 80,
     config_id: null
   };
     pegNameContainer.style.display = "flex";
@@ -1468,27 +1682,6 @@ function findConfigIdByCombo(capacity, iface, condition) {
   return found ? Number(found.config_id) : null;
 }
 
-function maybeShowAllConditionsExistModal(existingConfigs) {
-  if (!isCreatingNewConfig) return; // 🔑 IMPORTANT
-
-  const required = [
-    'sata:new', 'sata:used', 'sata:recertified',
-    'sas:new',  'sas:used',  'sas:recertified'
-  ];
-
-  const existingKeys = existingConfigs.map(
-    c => `${c.interface}:${c.condition_type}`
-  );
-
-  const missing = required.filter(k => !existingKeys.includes(k));
-
-  if (missing.length === 0) {
-    showAllConditionsExistModal();
-    return true;
-  }
-
-  return false;
-}
 function showAllConditionsModal() {
   const modal = document.getElementById('allConditionsModal');
   modal.classList.remove('hidden');
@@ -1504,6 +1697,9 @@ document
   .addEventListener('click', hideAllConditionsModal);
 
 document.addEventListener('DOMContentLoaded', () => {
+  document.querySelector(".sidebar-action-btn") ?.addEventListener("click", openPegTableEditor); 
+  document.getElementById("closePegTableModal") ?.addEventListener("click", () => { document.getElementById("pegTableModal")?.classList.add("hidden"); });
+  
   document
     .getElementById('allConditionsModal')
     .classList.add('hidden');
@@ -1557,31 +1753,26 @@ document.addEventListener('click', function (e) {
   }
 });
 
+
 //mobile view
-// =====================================================
-// 🔒 GUARANTEED MOBILE SIDEBAR TOGGLE
-// =====================================================
 document.addEventListener('DOMContentLoaded', () => {
   const sidebar = document.querySelector('.sidebar');
   const btn = document.getElementById('sidebarSlideToggle');
 
   if (!sidebar) {
-    console.error('❌ Sidebar not found');
+    //console.error('❌ Sidebar not found');
     return;
   }
   if (!btn) {
-    console.error('❌ Toggle button not found');
+    //console.error('❌ Toggle button not found');
     return;
   }
 
-  console.log('✅ Sidebar toggle initialized');
+  //console.log('Sidebar toggle initialized');
 
   btn.addEventListener('click', () => {
     sidebar.classList.toggle('collapsed');
-    console.log(
-      'Sidebar collapsed:',
-      sidebar.classList.contains('collapsed')
-    );
+    //console.log('Sidebar collapsed:',sidebar.classList.contains('collapsed'));
   });
 
   // Force collapse on mobile
@@ -1589,4 +1780,580 @@ document.addEventListener('DOMContentLoaded', () => {
     sidebar.classList.add('collapsed');
   }
 });
+
+
+// main graph
+function normalizeComboKey(key) {
+  return key
+    .toLowerCase()
+    .replace(/\s+/g, '')
+    .replace('/', '|')
+    .replace('-', '|')
+    .replace('_', '|');
+}
+
+function buildDatasets(series, allDates) {
+  return Object.entries(series).map(([rawKey, points]) => {
+    const key = normalizeComboKey(rawKey);
+
+    const map = {};
+    points.forEach(p => {
+      map[p.date] = Number(p.price) || null;
+    });
+
+    const color = AVG_PEG_COLORS[key] || '#6b7280';
+
+    return {
+      label: rawKey.toUpperCase(),
+      data: allDates.map(d => map[d] ?? null),
+
+      borderColor: color,
+      backgroundColor: color,
+      borderWidth: 2,
+      tension: 0.3,
+      spanGaps: true,
+
+      pointRadius: 3,
+      pointHoverRadius: 6
+    };
+  });
+}
+
+
+
+function updateAvgSummary(datasets, days) {
+  let total = 0;
+  let count = 0;
+
+  datasets.forEach(ds => {
+    ds.data.forEach(v => {
+      if (v != null) {
+        total += v;
+        count++;
+      }
+    });
+  });
+
+  const avg = count ? total / count : 0;
+  document.getElementById('avgPegSummary').textContent =
+    `Average PEG over last ${days} days: $${avg.toFixed(2)}`;
+}
+
+
+async function loadAvgPegByCombo(capacity, days) {
+  if (!capacity || !avgPegChart) return;
+
+  const res = await api.loadAvgPegByCombo(capacity, days);
+  if (!res || res.status !== 'success') return;
+
+  const combos = res.data;
+
+  // collect all dates
+  const dateSet = new Set();
+  Object.values(combos).forEach(rows =>
+    rows.forEach(r => dateSet.add(r.date))
+  );
+
+  const labels = [...dateSet].sort();
+
+  const datasets = buildDatasets(combos, labels);
+
+  avgPegChart.data.labels = labels;
+  avgPegChart.data.datasets = datasets;
+  avgPegChart.update();
+
+  updateAvgPegSummary(combos, days);
+}
+
+
+
+const avgPegRangeSelect = document.getElementById('avgPegRange');
+
+if (avgPegRangeSelect) {
+  avgPegRangeSelect.addEventListener('change', async (e) => {
+    const days = Number(e.target.value);
+
+    if (!currentCapacity) {
+      //console.warn('Range changed but no capacity selected');
+      return;
+    }
+
+    //console.log('Avg PEG range changed:', days);
+
+    await loadAvgPegByCombo(currentCapacity, days);
+  });
+}
+function updateAvgPegSummary(series, days) {
+  const container = document.getElementById('avgPegSummaryRows');
+  const daysEl = document.getElementById('avgPegDays');
+
+  if (!container || !daysEl) return;
+
+  daysEl.textContent = days;
+  container.innerHTML = '';
+
+  Object.entries(series).forEach(([key, points]) => {
+    if (!points.length) return;
+
+    const avg =
+      points.reduce((s, p) => s + Number(p.price || 0), 0) / points.length;
+
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.innerHTML = `
+      <span>${key.replace('|', ' / ').toUpperCase()}</span>
+      <strong>$${avg.toFixed(2)}</strong>
+    `;
+    container.appendChild(row);
+  });
+}
+
+function normalizeDailySeries(startDate, endDate, rows) {
+  const map = Object.fromEntries(rows.map(r => [r.day, r.value]));
+  const result = [];
+  let last = null;
+
+  for (let d = new Date(startDate); d <= endDate; d.setDate(d.getDate() + 1)) {
+    const key = d.toISOString().slice(0, 10);
+    last = map[key] ?? last;
+    result.push(last);
+  }
+
+  return result;
+}
+document.querySelectorAll(".section-header").forEach(header => {
+  header.addEventListener("click", () => {
+    const section = header.closest(".sidebar-section");
+    section.classList.toggle("collapsed");
+  });
+});
+
+/*peg table modal*/
+let pegSheetInstance = null;
+
+function initPegSheet() {
+  const container = document.getElementById("pegSheet");
+  if (!container) {
+    //console.error("pegSheet missing");
+    return;
+  }
+
+  if (pegSheetInstance) {
+    pegSheetInstance.destroy();
+    pegSheetInstance = null;
+  }
+
+  const BASE_COLS = [
+    "A",
+    "B",
+    "C",
+    "D",
+    "E",
+    "F",
+    "G",
+    "H",
+    "I",
+    "J",
+    "K"
+  ];
+
+  // 50 rows, dynamic columns
+  const data = Array.from({ length: 50 }, () =>
+    Array(BASE_COLS.length).fill("")
+  );
+
+  pegSheetInstance = new Handsontable(container, {
+  data,
+
+  colHeaders: BASE_COLS,
+
+  colWidths: (index) => {
+    if (index === 0) return 180;
+    if (index === 1 || index === 2) return 50;
+    if (index >= 6 && index <= 9) return 140;
+    return 120;
+  },
+
+  rowHeaders: true,
+  stretchH: "none",
+  width: "100%",
+  height: "100%",
+
+  contextMenu: {
+    items: {
+      row_above: {},
+      row_below: {},
+      separator1: '---------',
+      col_left: {},
+      col_right: {},
+      separator2: '---------',
+      remove_row: {},
+      remove_col: {},
+      separator3: '---------',
+      undo: {},
+      redo: {}
+    }
+  },
+
+  manualColumnResize: true,
+  manualColumnMove: true,
+  manualRowResize: true,
+
+  minSpareCols: 0,
+  minSpareRows: 10,
+
+  afterCreateCol: () => pegSheetInstance.render(),
+  afterRemoveCol: () => pegSheetInstance.render(),
+
+  licenseKey: "non-commercial-and-evaluation"
+});
+
+
+  //console.log("Peg table editor ready (columns editable)");
+}
+
+function addPegSheetRow(rowData) {
+  if (!pegSheetInstance) return;
+
+  // Always insert at the very top (row 1 / index 0)
+  pegSheetInstance.alter('insert_row_above', 0);
+
+  rowData.forEach((value, colIndex) => {
+    pegSheetInstance.setDataAtCell(0, colIndex, value);
+  });
+
+  pegSheetInstance.render();
+}
+
+
+
+function openPegTableEditor() {
+  const modal = document.getElementById("pegTableModal");
+  if (!modal) return;
+
+  modal.classList.remove("hidden");
+
+  // Handsontable MUST be created AFTER modal is visible
+  requestAnimationFrame(() => {
+    requestAnimationFrame(() => {
+      initPegSheet();
+      
+       addPegSheetRow([
+  "Product Number",
+  "Qty",
+  "Unit",
+  "Interface",
+  "Capacity",
+  "Condition",
+  "Brand",
+  "Low Buy Price/Unit",
+  "High Buy Price/Unit",
+  "Low Buy Price",
+  "High Buy Price"
+]);
+    });
+  });
+}
+
+
+
+function closePegTableEditor() {
+  const modal = document.getElementById("pegTableModal");
+  if (!modal) return;
+
+  modal.classList.add("hidden");
+
+  // Clean destroy (prevents ghost editors)
+  if (pegSheetInstance) {
+    pegSheetInstance.destroy();
+    pegSheetInstance = null;
+  }
+}
+
+document.querySelector(".sidebar-action-btn")
+  ?.addEventListener("click", openPegTableEditor);
+
+document.getElementById("closePegTableModal")
+  ?.addEventListener("click", closePegTableEditor);
+
+document
+  .getElementById("openPegHistoryBtn")
+  .addEventListener("click", () => {
+    openPegHistoryModal();
+  });
+
+// ================================
+// PEG INPUT HISTORY
+// ================================
+// =========================
+// PEG HISTORY STATE
+// =========================
+
+const pegHistoryModal     = document.getElementById("pegHistoryModal");
+const pegHistoryDate      = document.getElementById("pegHistoryDate");
+const pegDateStatus       = document.getElementById("pegDateStatus");
+const pegSaveStatus       = document.getElementById("pegSaveStatus");
+const pegEditorContainer  = document.getElementById("pegEditorContainer");
+
+// =========================
+// BUTTONS
+// =========================
+document.getElementById("openPegHistoryBtn")
+  ?.addEventListener("click", openPegHistoryModal);
+
+document.getElementById("closePegHistoryModal")
+  ?.addEventListener("click", closePegHistoryModal);
+
+document.getElementById("cancelPegHistory")
+  ?.addEventListener("click", closePegHistoryModal);
+
+document.getElementById("savePegHistory")
+  ?.addEventListener("click", savePegHistory);
+
+pegHistoryDate.addEventListener("change", e => {
+  setPegDate(e.target.value);
+});
+
+// =========================
+// OPEN / CLOSE MODAL
+// =========================
+function openPegHistoryModal() {
+  pegHistoryModal.classList.remove("hidden");
+
+  const today = new Date().toISOString().slice(0, 10);
+  pegHistoryDate.max = today;
+
+  if (!pegHistoryDate.value) {
+    pegHistoryDate.value = today;
+  }
+
+  setPegDate(pegHistoryDate.value);
+}
+
+function closePegHistoryModal() {
+  pegHistoryModal.classList.add("hidden");
+  pegDateStatus.textContent = "";
+  pegSaveStatus.textContent = "";
+  pegEditorContainer.innerHTML = "";
+  modalPegDraft = null;
+  activePegDate = null;
+}
+
+// =========================
+// DATE HELPERS
+// =========================
+function normalizeDate(val) {
+  if (!val) return null;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(val)) return val;
+
+  const d = new Date(val);
+  return isNaN(d) ? null : d.toISOString().slice(0, 10);
+}
+
+async function setPegDate(rawDate) {
+  const date = normalizeDate(rawDate);
+  if (!date) return;
+
+  const today = new Date().toISOString().slice(0, 10);
+  if (date > today) {
+    appAlert("Future dates are not allowed.");
+    pegHistoryDate.value = today;
+    return;
+  }
+
+  activePegDate = date;
+  pegHistoryDate.value = date;
+
+  await loadPegForDate(date);
+}
+
+// =========================
+// GET LIVE PEG POINTS
+// (used when no history exists)
+// =========================
+function getLivePegPointsFromEditor() {
+  if (!currentCapacity || !pegDataState[currentCapacity]) return [];
+
+  return pegDataState[currentCapacity].points.map(p => ({
+    peg_point_id: Number(p.id),     // FORCE numeric ID
+    label: p.label,
+    channel: p.channel,
+    qty: p.qty ?? 0
+  }));
+}
+
+// =========================
+// LOAD PEG BY DATE
+// =========================
+async function loadPegForDate(selectedDate) {
+  if (!currentCapacity || !selectedDate) return;
+
+  // HARD RESET (prevents stale UI)
+  modalPegDraft = null;
+  pegEditorContainer.innerHTML = "";
+  pegSaveStatus.textContent = "";
+
+  const configId = findConfigIdByCombo(
+    currentCapacity,
+    currentInterfaceKey,
+    currentConditionKey
+  );
+
+  if (!configId) {
+    pegDateStatus.textContent =
+      "No configuration exists yet. Create one first.";
+    return;
+  }
+
+  const res = await api.loadPegByDate(configId, selectedDate);
+  //console.log("loadPegByDate:", res);
+
+  // 🔹 Live peg structure (labels, qty, channels)
+  const livePoints = getLivePegPointsFromEditor();
+
+  // 🔹 History lookup by peg_point_id
+  const historyMap = new Map();
+  if (Array.isArray(res.points)) {
+    res.points.forEach(p => {
+      historyMap.set(p.peg_point_id, p);
+    });
+  }
+
+  // MERGE: keep price ONLY if history exists
+  const mergedPoints = livePoints.map(lp => {
+    const hist = historyMap.get(lp.peg_point_id);
+
+    return {
+      peg_point_id: lp.peg_point_id,
+      label: lp.label,
+      channel: lp.channel,
+      qty: lp.qty,
+
+      // PRICE RULE
+      price: hist ? hist.price : "",   // blank ONLY if no data
+    };
+  });
+
+  modalPegDraft = { points: mergedPoints };
+
+  if (historyMap.size > 0) {
+    pegDateStatus.textContent =
+      `Editing PEG data for ${selectedDate}`;
+  } else {
+    pegDateStatus.textContent =
+      `No PEG data for ${selectedDate}. Enter values.`;
+  }
+
+  renderModalPegEditor();
+  //console.log("LIVE POINTS", livePoints);
+//console.log("HISTORY POINTS", res.points);
+}
+
+
+
+// =========================
+// RENDER MODAL TABLE
+// =========================
+function renderModalPegEditor() {
+  if (!modalPegDraft || !Array.isArray(modalPegDraft.points)) return;
+
+  pegEditorContainer.innerHTML = `
+    <table class="peg-table">
+      <thead>
+        <tr>
+          <th>Label</th>
+          <th>Channel</th>
+          <th>Price</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${modalPegDraft.points.map((p, i) => `
+          <tr data-index="${i}">
+            <td><input value="${p.label}" disabled></td>
+            <td><input value="${p.channel}" disabled></td>
+            <td>
+              <input type="number" step="0.01"
+                     value="${p.price ?? ""}"
+                     data-field="price">
+            </td>
+          </tr>
+        `).join("")}
+      </tbody>
+    </table>
+  `;
+
+  // Bind inputs → modal state only
+  pegEditorContainer.querySelectorAll("tbody tr").forEach(tr => {
+    const idx = Number(tr.dataset.index);
+
+    tr.querySelectorAll("input[data-field]").forEach(input => {
+      input.addEventListener("input", () => {
+        const field = input.dataset.field;
+        modalPegDraft.points[idx][field] =
+          Number(input.value) || 0;
+      });
+    });
+  });
+}
+
+// =========================
+// SAVE PEG HISTORY
+// =========================
+async function savePegHistory() {
+  if (!activePegDate || !modalPegDraft) {
+    appAlert("Please select a valid date.");
+    return;
+  }
+
+  const payload = {
+    date: activePegDate,
+    points: modalPegDraft.points.map(p => ({
+      peg_point_id: p.peg_point_id,
+      price: Number(p.price) || 0,
+      qty: Number(p.qty) || 0
+    }))
+  };
+
+  //console.log("SAVE PAYLOAD:", payload);
+
+  const res = await api.savePegHistory(payload);
+  //console.log("SAVE RESPONSE:", res);
+
+  if (res.status === "success") {
+
+    // reload modal data
+    await loadPegForDate(activePegDate);
+    
+pegSaveStatus.className = "date-status success";
+pegSaveStatus.textContent =
+      `Saved successfully for ${activePegDate} (${new Date().toLocaleTimeString()})`;
+    // reload main editor + charts ONLY if latest
+    if (res.isLatest) {
+
+      if (typeof fetchPegDataFor === "function") {
+        await fetchPegDataFor(
+          currentCapacity,
+          currentInterfaceKey,
+          currentConditionKey
+        );
+      }
+
+      if (typeof refreshUI === "function") {
+        refreshUI(
+          currentCapacity,
+          currentInterfaceKey,
+          currentConditionKey
+        );
+      }
+
+      if (typeof reloadPegHistoryChart === "function") {
+        reloadPegHistoryChart();
+      }
+    }
+
+  } else {
+    pegSaveStatus.className = "date-status error";
+    pegSaveStatus.textContent = res.message || "Save failed.";
+  }
+}
 
