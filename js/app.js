@@ -2258,7 +2258,7 @@ function renderModalPegEditor() {
   if (!modalPegDraft || !Array.isArray(modalPegDraft.points)) return;
 
   pegEditorContainer.innerHTML = `
-    <table class="peg-table">
+    <table class="peg-table peg-history-tb-mb">
       <thead>
         <tr>
           <th>Label</th>
