@@ -679,7 +679,7 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
 
 }
 /* ============================= */
-/* 📱 MOBILE MAIN LAYOUT */
+/*  MOBILE MAIN LAYOUT */
 /* ============================= */
 /* ============================= */
 /* 📊 MOBILE CHARTS */
@@ -710,7 +710,7 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
 }
 }
 /* ============================= */
-/* 📱 MOBILE TABLE SCROLL */
+/*  MOBILE TABLE SCROLL */
 /* ============================= */
 @media (max-width: 768px) {
 
@@ -730,7 +730,7 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
   }
 }
 /* ============================= */
-/* 👆 TOUCH TARGET IMPROVEMENTS */
+/* TOUCH TARGET IMPROVEMENTS */
 /* ============================= */
 @media (max-width: 768px) {
 
@@ -755,9 +755,27 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
     font-size: 14px;
     padding: 6px;
   }
+  
+  .peg-history-tb-mb input {
+    width: 100px;
+    font-size: 12px;
+    padding: 3px;
+}
+
+.peg-history-tb-mb input[type="number"] {
+    padding: 3px;
+    font-size: 12px;
+    width: 80px;
+}
+
+.peg-history-tb-mb input {
+    width: 100px;
+    font-size: 12px;
+    padding: 3px;
+}
 }
 /* ============================= */
-/* 📱 LEGEND & HEADER CLEANUP */
+/* LEGEND & HEADER CLEANUP */
 /* ============================= */
 @media (max-width: 768px) {
 
@@ -1329,9 +1347,9 @@ button#closePegTableModal {
 
 #pegHistoryModal input[type="date"] {
   padding: 6px 8px;
-  border-radius: 6px;
-  border: 1px solid #d1d5db;
-  font-size: 13px;
+  border: 0.5px solid #e5e5e5;
+  border-radius: 4px;
+  background: #f5f5f5;
 }
 
 /* Status text */
