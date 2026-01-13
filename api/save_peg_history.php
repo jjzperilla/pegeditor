@@ -1,4 +1,6 @@
 <?php
+require "auth.php";
+requireAuth();
 header('Content-Type: application/json');
 require 'db.php';
 
@@ -23,6 +25,14 @@ if (
 $date   = $data['date'];          // YYYY-MM-DD
 $points = $data['points'];
 
+/* ===============================
+ TIME
+================================ */
+$estNow = new DateTime('now', new DateTimeZone('America/New_York'));
+
+$pegDateTimeEST = $estNow->format('Y-m-d H:i:s');
+$pegDateEST     = $estNow->format('Y-m-d'); 
+
 $db->begin_transaction();
 
 try {
@@ -32,11 +42,12 @@ try {
   =============================== */
   $stmtHistory = $db->prepare("
     INSERT INTO peg_point_history
-      (peg_point_id, day_date, price, qty)
-    VALUES (?, ?, ?, ?)
+      (peg_point_id, day_date, price, qty, created_at)
+    VALUES (?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       price = VALUES(price),
-      qty   = VALUES(qty)
+      qty   = VALUES(qty),
+      created_at = VALUES(created_at)
   ");
 
   /* ===============================
@@ -72,11 +83,12 @@ try {
 
     // ---- A) SAVE HISTORY ----
     $stmtHistory->bind_param(
-      "isdi",
+      "isdis",
       $pegPointId,
       $date,
       $price,
-      $qty
+      $qty,
+      $pegDateTimeEST
     );
     $stmtHistory->execute();
 

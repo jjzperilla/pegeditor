@@ -1,3 +1,8 @@
+let pegSheetInstance = null;
+export function setPegSheetInstance(instance) {
+  pegSheetInstance = instance;
+}
+
 function todayISO() {
   return new Date().toISOString().slice(0, 10);
 }
@@ -29,23 +34,23 @@ async function generateBuyPricesFromDB() {
 
     try {
       const res = await fetch(
-        `/api/get_peg_buy_price.php` +
+        `./api/get_peg_buy_price.php` +
         `?capacity=${encodeURIComponent(capacity)}` +
         `&interface=${encodeURIComponent(iface.toLowerCase())}` +
         `&condition=${encodeURIComponent(normCond)}`
       ).then(r => r.json());
 
       if (res.status !== 'success') {
-        //console.warn(`Row ${r + 1}: No PEG found`);
+        ////console.warn(`Row ${r + 1}: No PEG found`);
         continue;
       }
 
-      const adjusted = Number(res.adjusted_price);
-      const margin   = Number(res.margin_percent) || 80;
+      const low_buy = Number(res.low_buy);
+      const high_buy   = Number(res.high_buy);
 
       // Base unit prices
-      const lowUnit  = adjusted * (margin / 100);
-      const highUnit = lowUnit * 1.05;
+      const lowUnit  = low_buy;
+      const highUnit = high_buy;
 
       // Totals
       const lowTotal  = lowUnit * qty;
@@ -58,16 +63,12 @@ async function generateBuyPricesFromDB() {
       hot.setDataAtCell(r, 10, highTotal.toFixed(2)); // High Buy
 
     } catch (err) {
-      //console.error(`Row ${r + 1}: API error`, err);
+      ////console.error(`Row ${r + 1}: API error`, err);
     }
   }
 
   hot.render();
 }
-
-document
-  .getElementById("generatePegBuyPrices")
-  ?.addEventListener("click", generateBuyPricesFromDB);
 
 
 //export
@@ -93,7 +94,6 @@ function exportPegSheetToCSV() {
       .join(',') + '\n';
   });
 
-  // 🔑 Filename with date
   const date = todayISO();
   const filename = `peg-buy-prices-${date}.csv`;
 
@@ -109,8 +109,17 @@ function exportPegSheetToCSV() {
   URL.revokeObjectURL(url);
 
 }
-document
-  .getElementById('exportPegCsvBtn')
-  ?.addEventListener('click', () => {
-    exportPegSheetToCSV();
-  });
+
+document.addEventListener('DOMContentLoaded', () => {
+  const btn = document.getElementById("generatePegBuyPrices");
+  if (btn) {
+    btn.addEventListener("click", generateBuyPricesFromDB);
+    //console.log('pegSheetInstance at click:', pegSheetInstance);
+
+  }
+
+  const exportBtn = document.getElementById('exportPegCsvBtn');
+  if (exportBtn) {
+    exportBtn.addEventListener("click", exportPegSheetToCSV);
+  }
+});

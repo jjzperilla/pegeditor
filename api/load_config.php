@@ -1,4 +1,6 @@
 <?php
+require "auth.php";
+requireAuth();
 header('Content-Type: application/json');
 require 'db.php';
 
@@ -72,9 +74,12 @@ while ($row = $res->fetch_assoc()) {
 /* ===============================
    LOAD MODIFIERS
 ================================ */
-$modifiers = [];
 $res = $db->query("
-    SELECT id, label, amount
+    SELECT
+        id,
+        label,
+        amount,
+        modifier_type
     FROM peg_modifiers
     WHERE config_id = $config_id
     ORDER BY id ASC
@@ -82,6 +87,7 @@ $res = $db->query("
 
 while ($row = $res->fetch_assoc()) {
     $row['amount'] = (float)$row['amount'];
+    $row['modifier_type'] = $row['modifier_type'] ?? 'buy';
     $modifiers[] = $row;
 }
 
