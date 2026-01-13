@@ -2,7 +2,7 @@
 header("Content-Type: application/json");
 session_start();
 
-require "db.php";
+require_once __DIR__ . "/db.php";
 
 /* =========================
    Read JSON input safely
@@ -26,14 +26,15 @@ $password = trim($input['password']);
 ========================= */
 $res = $db->query("SELECT password_hash FROM app_auth LIMIT 1");
 
-if (!$res || $res->num_rows === 0) {
+if (!$res) {
   http_response_code(500);
   echo json_encode([
     "status" => "error",
-    "message" => "Auth not configured"
+    "message" => "SQL ERROR: " . $db->error
   ]);
   exit;
 }
+
 
 $row = $res->fetch_assoc();
 
