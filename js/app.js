@@ -405,9 +405,27 @@ function updateInterfaceOptions() {
 
 // Init + listen
 updateInterfaceOptions();
-driveTypeSelect.addEventListener('change', updateInterfaceOptions);
 
+function restoreSelectors({ driveType, iface, condition }) {
+  driveTypeSelect.value = driveType;
+  updateInterfaceOptions();
 
+  if (
+    iface &&
+    [...interfaceSelect.options].some(
+      o => o.value === iface && !o.hidden
+    )
+  ) {
+    interfaceSelect.value = iface;
+  }
+
+  if (condition) {
+    conditionSelect.value = condition;
+  }
+
+  currentInterfaceKey = interfaceSelect.value;
+  currentConditionKey = conditionSelect.value;
+}
 
 function getCurrentPegBlock() {
   if (!currentCapacity) return null;
@@ -855,10 +873,9 @@ function normDriveType(v) {
 
 
 function renderPegHistoryTable(cap) {
-  const key = normCap(cap);
   pegHistoryTableBody.innerHTML = '';
 
-  const allHistory = pegHistoryByCapacity[key] || [];
+  const allHistory = pegHistoryByCapacity[cap] || [];
 
   const driveFilter = filterDriveType?.value || '';
   const ifaceFilter = filterInterface?.value || '';
@@ -1378,7 +1395,7 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
       
       // after successful save
 const historyRes = await api.loadHistory(currentCapacity);
-pegHistoryByCapacity[normCap(currentCapacity)] = historyRes.history || [];
+pegHistoryByCapacity[currentCapacity] = historyRes.history || [];
 renderPegHistoryTable(currentCapacity);
 
 //get MOST RECENT snapshot
@@ -1449,7 +1466,7 @@ await loadAvgPegByCombo(currentCapacity, days);
 showPegHistoryLoading();  
   // load history from API
 const result = await api.loadHistory(capacityKey);
-pegHistoryByCapacity[normCap(capacityKey)] = result.history || [];
+pegHistoryByCapacity[capacityKey] = result.history || [];
 pegNameInput.value = "";
 pegNameContainer.style.display = 'none';
 renderPegHistoryTable(capacityKey);
@@ -1811,7 +1828,7 @@ if (e.target.dataset.action === 'viewHistory') {
 
   // Reload history
 const res = await api.loadHistory(currentCapacity);
-pegHistoryByCapacity[normCap(currentCapacity)] = res.history || [];
+pegHistoryByCapacity[currentCapacity] = res.history || [];
 
   // RESET STATE AFTER DELETE
   window.currentConfigId = null;
@@ -1996,6 +2013,13 @@ function generateSimpleHistory(base) {
 
 // --------- Init
 async function init() {
+  function initPrevSelectors() {
+  driveTypeSelect.dataset.prev = driveTypeSelect.value;
+  interfaceSelect.dataset.prev = interfaceSelect.value;
+  conditionSelect.dataset.prev = conditionSelect.value;
+}
+
+initPrevSelectors();
   pegDataHistoryCard.style.display = 'none';
   hideEditorOnMobile();
   showChooseCapacityState();
@@ -2034,7 +2058,7 @@ async function init() {
     capacities.map(async cap => {
       try {
         const res = await api.loadHistory(cap);
-        pegHistoryByCapacity[normCap(cap)] = res.history || [];
+        pegHistoryByCapacity[cap] = res.history || [];
       } catch {
         pegHistoryByCapacity[cap] = [];
       }
@@ -2191,6 +2215,9 @@ document.addEventListener('DOMContentLoaded', () => {
     .classList.add('hidden');
 });
 
+
+
+
 interfaceSelect.addEventListener('change', async () => {
   const ok = await confirmIfUnsaved(
     "You have unsaved changes. Changing interface will discard them. Continue?"
@@ -2224,9 +2251,11 @@ conditionSelect.addEventListener('change', async () => {
 driveTypeSelect.addEventListener("change", async () => {
   if (!currentCapacity) return;
 
-  const prevDriveType = driveTypeSelect.dataset.prev;
-  const prevInterface = interfaceSelect.dataset.prev;
-  const prevCondition = conditionSelect.dataset.prev;
+  const snapshot = {
+    driveType: driveTypeSelect.dataset.prev,
+    iface: interfaceSelect.dataset.prev,
+    condition: conditionSelect.dataset.prev
+  };
 
   const newDriveType = driveTypeSelect.value;
 
@@ -2234,18 +2263,22 @@ driveTypeSelect.addEventListener("change", async () => {
     "You have unsaved changes. Changing drive type will discard them. Continue?"
   );
 
+  // ❌ CANCEL → FULL ATOMIC ROLLBACK
   if (!ok) {
-    driveTypeSelect.value = prevDriveType;
-    updateInterfaceOptions(prevDriveType);
-
-    if (prevInterface) interfaceSelect.value = prevInterface;
-    if (prevCondition) conditionSelect.value = prevCondition;
-
+    restoreSelectors(snapshot);
     return;
   }
+
+  // ✅ CONFIRM — now commit
   driveTypeSelect.dataset.prev = newDriveType;
+
+  updateInterfaceOptions();
+
   interfaceSelect.dataset.prev = interfaceSelect.value;
   conditionSelect.dataset.prev = conditionSelect.value;
+
+  currentInterfaceKey = interfaceSelect.value;
+  currentConditionKey = conditionSelect.value;
 
   hasUnsavedChanges = false;
   clearChangeIndicator();
@@ -2255,10 +2288,8 @@ driveTypeSelect.addEventListener("change", async () => {
   isCreatingNewConfig = false;
   delete pegDataState[currentCapacity];
 
-  updateInterfaceOptions(newDriveType);
   await handleInterfaceOrConditionChange();
 });
-
 
 
 
