@@ -143,25 +143,6 @@ function updateAvgPegCardTitle(capacity) {
     : 'Average PEG Price Over Time';
 }
 
-
-
-
-//function computeBandPrices(adjustedSalePrice, inventoryMode) {
- // let lowMultiplier = 0.65;
-//  let highMultiplier = 0.75;
-//  switch (inventoryMode) {
-//    case 'overstocked':
-//      lowMultiplier = 0.55; highMultiplier = 0.65; break;
-//    case 'low':
-//      lowMultiplier = 0.70; highMultiplier = 0.80; break;
-//    case 'critical':
-//      lowMultiplier = 0.75; highMultiplier = 0.85; break;
-//    default:
-//      break;
-//  }
-//  return { low: adjustedSalePrice * lowMultiplier, high: adjustedSalePrice * highMultiplier };
-//}
-
 //set pegdate
 async function setPegDate(rawDate) {
   const date = normalizeDate(rawDate);
@@ -356,8 +337,8 @@ let lastSavedAt = null;
 let isConfirmingUnsaved = false;
 let autosavePaused = false;
 let idlePaused = false;
-
-
+let suppressSelectorEvents = false;
+let isRestoringSelectors = false;
 
 const INTERFACES_BY_TYPE = {
   HDD: ['sata', 'sas'],
@@ -764,7 +745,7 @@ document.addEventListener('input', (e) => {
 document.addEventListener('input', (e) => {
   if (!e.target.matches('[data-field="price"], [data-field="peg_modifier"], [data-field="weight"]')) return;
 
-  // 🔑 always resolve index from the closest row that HAS data-index
+  // always resolve index from the closest row that HAS data-index
   const row = e.target.closest('tr[data-index]');
   if (!row) return;
 
@@ -1103,12 +1084,6 @@ function updateSummary(cap) {
 
 
 
-
-
-
-// --------- Utilities ----------
-
-
 // --------- Data loading & sync ----------
 async function loadCapacities() {
   try {
@@ -1134,7 +1109,7 @@ async function fetchPegDataFor(
 ) {
   if (!cap) return;
 
-  // 🔒 Preserve snapshot value
+  // Preserve snapshot value
   const preservedAdjustedPrice =
     pegDataState[cap]?.adjusted_price;
 
@@ -1206,7 +1181,7 @@ async function fetchPegDataFor(
     }
 
   } catch (err) {
-    //console.error('❌ fetchPegDataFor failed:', err);
+    //console.error(' fetchPegDataFor failed:', err);
   }
 }
 
@@ -1312,7 +1287,7 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
     peg_name: pegNameInput.value || null,
     marginPercent: Number(state.marginPercent) || 50,
 
-    // 🔒 FINAL VALUES (DB SOURCE OF TRUTH)
+    // FINAL VALUES (DB SOURCE OF TRUTH)
     adjustedPegBase,
     adjustedSalePrice,
     basePegPrice,
@@ -1676,7 +1651,7 @@ addRowBtn.addEventListener('click', () => {
   const base = block.points.length ? Number(block.points[0].price) : 100;
 
   block.points.push({
-    id: null,                 // 👈 important
+    id: null,    
     label: `Point ${block.points.length + 1}`,
     channel: '',
     url: '',
@@ -1742,7 +1717,7 @@ saleModifierTableBody?.addEventListener('input', (e) => {
       ? Number(input.value) || 0
       : input.value;
 
-  updateSummaryUI(currentCapacity); // ✅ SAFE
+  updateSummaryUI(currentCapacity);
 });
 
 
@@ -1949,7 +1924,7 @@ function refreshUI(cap, iface, cond) {
   updateSummaryUI(cap);
   renderPegTable(cap, currentInterfaceKey, currentConditionKey);
 
-  // ✅ render BOTH — but NEVER let one wipe the other
+  // render BOTH — but NEVER let one wipe the other
   renderModifierTable(cap);
   renderSaleModifierTable(cap);
 
@@ -1960,6 +1935,10 @@ function refreshUI(cap, iface, cond) {
 
 
 async function handleInterfaceOrConditionChange() {
+  if (isRestoringSelectors) {
+    console.warn(" Skipping handleInterfaceOrConditionChange (restoring)");
+    return;
+  }
   if (!currentCapacity) return;
 
   currentInterfaceKey = interfaceSelect.value;
@@ -2073,6 +2052,20 @@ initPrevSelectors();
 
   renderCapacityButtons();
 }
+
+let driveTypeSnapshot = null;
+
+driveTypeSelect.addEventListener("focus", () => {
+  driveTypeSnapshot = {
+    driveType: driveTypeSelect.value,
+    iface: interfaceSelect.value,
+    condition: conditionSelect.value,
+    ifaceKey: currentInterfaceKey,
+    condKey: currentConditionKey
+  };
+
+  console.log(" DriveType snapshot taken:", driveTypeSnapshot);
+});
 
 
 
@@ -2221,10 +2214,38 @@ document.addEventListener('DOMContentLoaded', () => {
     .classList.add('hidden');
 });
 
+function restoreSelectorsAtomic(snapshot) {
+  isRestoringSelectors = true;
+  suppressSelectorEvents = true;
 
+
+  driveTypeSelect.value = snapshot.driveType;
+
+  updateInterfaceOptions();
+
+  if (
+    snapshot.iface &&
+    [...interfaceSelect.options].some(
+      o => o.value === snapshot.iface && !o.hidden
+    )
+  ) {
+    interfaceSelect.value = snapshot.iface;
+  }
+
+
+  conditionSelect.value = snapshot.condition;
+
+  currentInterfaceKey = snapshot.ifaceKey;
+  currentConditionKey = snapshot.condKey;
+
+  suppressSelectorEvents = false;
+  isRestoringSelectors = false;
+}
 
 
 interfaceSelect.addEventListener('change', async () => {
+  if (suppressSelectorEvents) return;
+
   const ok = await confirmIfUnsaved(
     "You have unsaved changes. Changing interface will discard them. Continue?"
   );
@@ -2239,6 +2260,8 @@ interfaceSelect.addEventListener('change', async () => {
 });
 
 conditionSelect.addEventListener('change', async () => {
+  if (suppressSelectorEvents) return;
+
   const ok = await confirmIfUnsaved(
     "You have unsaved changes. Changing condition will discard them. Continue?"
   );
@@ -2257,11 +2280,8 @@ conditionSelect.addEventListener('change', async () => {
 driveTypeSelect.addEventListener("change", async () => {
   if (!currentCapacity) return;
 
-  const snapshot = {
-    driveType: driveTypeSelect.dataset.prev,
-    iface: interfaceSelect.dataset.prev,
-    condition: conditionSelect.dataset.prev
-  };
+  const snapshot = driveTypeSnapshot;
+  if (!snapshot) return;
 
   const newDriveType = driveTypeSelect.value;
 
@@ -2269,13 +2289,24 @@ driveTypeSelect.addEventListener("change", async () => {
     "You have unsaved changes. Changing drive type will discard them. Continue?"
   );
 
-  // ❌ CANCEL → FULL ATOMIC ROLLBACK
   if (!ok) {
-    restoreSelectors(snapshot);
+    console.warn("↩ Restoring from snapshot:", snapshot);
+
+    suppressSelectorEvents = true;
+
+    driveTypeSelect.value = snapshot.driveType;
+    updateInterfaceOptions();
+
+    interfaceSelect.value = snapshot.iface;
+    conditionSelect.value = snapshot.condition;
+
+    currentInterfaceKey = snapshot.ifaceKey;
+    currentConditionKey = snapshot.condKey;
+
+    suppressSelectorEvents = false;
     return;
   }
 
-  // ✅ CONFIRM — now commit
   driveTypeSelect.dataset.prev = newDriveType;
 
   updateInterfaceOptions();
@@ -2360,16 +2391,6 @@ document.addEventListener('DOMContentLoaded', () => {
     sidebar.classList.add('collapsed');
   }
 });
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -2547,9 +2568,7 @@ document
     openPegHistoryModal();
   });
 
-// ================================
-// PEG INPUT HISTORY
-// ================================
+
 // =========================
 // PEG HISTORY STATE
 // =========================
@@ -2604,12 +2623,6 @@ function closePegHistoryModal() {
 }
 
 // =========================
-// DATE HELPERS
-// =========================
-
-
-
-// =========================
 // GET LIVE PEG POINTS
 // (used when no history exists)
 // =========================
@@ -2623,12 +2636,6 @@ function getLivePegPointsFromEditor() {
     qty: p.qty ?? 0
   }));
 }
-
-// =========================
-// LOAD PEG BY DATE
-// =========================
-
-
 
 
 // =========================

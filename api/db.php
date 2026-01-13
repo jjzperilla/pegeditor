@@ -1,6 +1,6 @@
 <?php
 $DB_HOST = 'localhost';
-$DB_USER = 'root';
+$DB_USER = 'pegmatrix';
 $DB_PASS = 'ServerTech2025!';
 $DB_NAME = 'pegeditor';
 
