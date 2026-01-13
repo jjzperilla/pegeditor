@@ -1,4 +1,7 @@
 <?php
+require "auth.php";
+requireAuth();
+
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 error_reporting(E_ALL);
 ini_set('display_errors', 0);
@@ -30,23 +33,14 @@ $capacity  = trim($payload['capacity'] ?? '');
 $interface = strtolower(trim($payload['interface'] ?? ''));
 $condition = strtolower(trim($payload['condition'] ?? ''));
 
-$pegName = $payload['peg_name'] ?? null;
-$margin  = isset($payload['marginPercent']) ? (float)$payload['marginPercent'] : 25;
+$pegName       = $payload['peg_name'] ?? null;
+$margin        = isset($payload['marginPercent']) ? (float)$payload['marginPercent'] : 50;
 $inventoryMode = $payload['inventoryMode'] ?? 'balanced';
 
-/* 🔥 DATE AWARENESS */
-$pegDate = $payload['date'] ?? date('Y-m-d');
-if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $pegDate)) {
-    http_response_code(400);
-    echo json_encode(['status' => 'error', 'message' => 'Invalid date format']);
-    exit;
-}
-if ($pegDate > date('Y-m-d')) {
-    http_response_code(400);
-    echo json_encode(['status' => 'error', 'message' => 'Future dates are not allowed']);
-    exit;
-}
-$pegDateTime = $pegDate . ' 12:00:00';
+/* 🔒 FINAL VALUES FROM UI */
+$basePegPrice = isset($payload['basePegPrice'])? (float)$payload['basePegPrice']: 0;
+$adjustedPegBase   = (float)($payload['adjustedPegBase'] ?? 0);
+$adjustedSalePrice = (float)($payload['adjustedSalePrice'] ?? 0);
 
 $peg       = $payload['peg'] ?? [];
 $points    = $peg['points'] ?? [];
@@ -59,21 +53,47 @@ if (!$capacity || !$interface || !$condition) {
     exit;
 }
 
+$driveTypeId = (int)($payload['drive_type_id'] ?? 0);
+
+if ($driveTypeId <= 0) {
+    http_response_code(400);
+    echo json_encode([
+        'status' => 'error',
+        'message' => 'Missing drive_type_id'
+    ]);
+    exit;
+}
+
+/* ===============================
+   3) TIME
+================================ */
+$estNow = new DateTime('now', new DateTimeZone('America/New_York'));
+
+$pegDateTimeEST = $estNow->format('Y-m-d H:i:s');
+$pegDateEST     = $estNow->format('Y-m-d'); 
+
 $db->begin_transaction();
 
 try {
 
     /* ===============================
-       3) CONFIG (UPSERT)
-    ================================ */
-    $config_id = null;
-
+       4) CONFIG UPSERT
+    =============================== */
     $find = $db->prepare("
         SELECT id FROM peg_configs
-        WHERE capacity=? AND interface=? AND condition_type=?
+        WHERE capacity = ?
+        AND drive_type_id = ?
+        AND interface = ?
+        AND condition_type = ?
         LIMIT 1
     ");
-    $find->bind_param("sss", $capacity, $interface, $condition);
+    $find->bind_param(
+    "siss",
+    $capacity,
+    $driveTypeId,
+    $interface,
+    $condition
+);
     $find->execute();
     $res = $find->get_result();
 
@@ -90,140 +110,105 @@ try {
     } else {
         $ins = $db->prepare("
             INSERT INTO peg_configs
-            (capacity, interface, condition_type, margin_percent, inventory_mode, peg_name)
-            VALUES (?, ?, ?, ?, ?, ?)
+            (capacity, drive_type_id, interface, condition_type, margin_percent, inventory_mode, peg_name)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
         ");
         $ins->bind_param(
-            "sssdss",
-            $capacity,
-            $interface,
-            $condition,
-            $margin,
-            $inventoryMode,
-            $pegName
+        "sissdds",
+        $capacity,
+        $driveTypeId,
+        $interface,
+        $condition,
+        $margin,
+        $inventoryMode,
+        $pegName
         );
         $ins->execute();
         $config_id = $db->insert_id;
     }
 
     /* ===============================
-       4) PEG POINTS
-    ================================ */
+   DELETE REMOVED PEG POINTS
+================================ */
+$incomingIds = [];
+
+foreach ($points as $p) {
+    if (!empty($p['id'])) {
+        $incomingIds[] = (int)$p['id'];
+    }
+}
+
+if (count($incomingIds) > 0) {
+    $placeholders = implode(',', array_fill(0, count($incomingIds), '?'));
+    $types = str_repeat('i', count($incomingIds));
+
+    $sql = "
+        DELETE FROM peg_points
+        WHERE config_id = ?
+          AND id NOT IN ($placeholders)
+    ";
+
+    $stmt = $db->prepare($sql);
+    $stmt->bind_param(
+        "i" . $types,
+        $config_id,
+        ...$incomingIds
+    );
+    $stmt->execute();
+} else {
+    // 🔥 If no points left, delete ALL
+    $stmt = $db->prepare("
+        DELETE FROM peg_points
+        WHERE config_id = ?
+    ");
+    $stmt->bind_param("i", $config_id);
+    $stmt->execute();
+}
+    
+ /* ===============================
+       5) PREPARE PEG POINT STATEMENTS
+    =============================== */
     $updPoint = $db->prepare("
         UPDATE peg_points
-        SET label=?, channel=?, url=?, price=?, qty=?, weight=?
+        SET
+            label=?,
+            channel=?,
+            url=?,
+            price=?,
+            qty=?,
+            weight=?,
+            notes=?,
+            peg_modifier=?,
+            adjusted_peg_price=?
         WHERE id=? AND config_id=?
     ");
 
     $insPoint = $db->prepare("
         INSERT INTO peg_points
-        (config_id, label, channel, url, price, qty, weight)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-    ");
+        (
+            config_id,
+            label,
+            channel,
+            url,
+            price,
+            qty,
+            weight,
+            notes,
+            peg_modifier,
+            adjusted_peg_price
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");   
 
+    
     /* ===============================
-       4.1) PEG POINT HISTORY (DATE AWARE)
-    ================================ */
-    $upsertHist = $db->prepare("
-        INSERT INTO peg_point_history
-          (peg_point_id, day_date, price, qty)
-        VALUES
-          (?, ?, ?, ?)
-        ON DUPLICATE KEY UPDATE
-          price = VALUES(price),
-          qty   = VALUES(qty)
-    ");
+   6.5) SALES DATA (SAFE)
+================================ */
+if (is_array($sales)) {
 
-    foreach ($points as $p) {
-        $pointId = isset($p['id']) ? (int)$p['id'] : null;
-
-        $label   = $p['label'] ?? '';
-        $channel = $p['channel'] ?? '';
-        $url     = $p['url'] ?? '';
-        $price   = (float)($p['price'] ?? 0);
-        $qty     = (int)($p['qty'] ?? 0);
-        $weight  = (float)($p['weight'] ?? 0);
-
-        if ($pointId) {
-            $updPoint->bind_param(
-                "sssdidii",
-                $label,
-                $channel,
-                $url,
-                $price,
-                $qty,
-                $weight,
-                $pointId,
-                $config_id
-            );
-            $updPoint->execute();
-        } else {
-            $insPoint->bind_param(
-                "isssdid",
-                $config_id,
-                $label,
-                $channel,
-                $url,
-                $price,
-                $qty,
-                $weight
-            );
-            $insPoint->execute();
-            $pointId = $db->insert_id;
-        }
-
-        // 🔥 DATE-AWARE HISTORY SAVE
-        $upsertHist->bind_param("isdi", $pointId, $pegDate, $price, $qty);
-        $upsertHist->execute();
-    }
-
-    /* ===============================
-       5) MODIFIERS
-    ================================ */
-    $delMods = $db->prepare("DELETE FROM peg_modifiers WHERE config_id=?");
-    $delMods->bind_param("i", $config_id);
-    $delMods->execute();
-
-    $insMod = $db->prepare("
-        INSERT INTO peg_modifiers (config_id, label, amount)
-        VALUES (?, ?, ?)
-    ");
-
-    foreach ($modifiers as $m) {
-        $label = $m['label'] ?? '';
-        $amt   = (float)($m['amount'] ?? 0);
-        $insMod->bind_param("isd", $config_id, $label, $amt);
-        $insMod->execute();
-    }
-
-    /* ===============================
-       6) CALCULATE PEG
-    ================================ */
-    $basePrice = 0;
-    $totalWeight = 0;
-
-    foreach ($points as $p) {
-        $price  = (float)($p['price'] ?? 0);
-        $weight = (float)($p['weight'] ?? 1);
-        if ($weight <= 0) $weight = 1;
-
-        $basePrice += $price * $weight;
-        $totalWeight += $weight;
-    }
-
-    $basePrice = $totalWeight > 0 ? $basePrice / $totalWeight : 0;
-
-    $modifierTotal = 0;
-    foreach ($modifiers as $m) {
-        $modifierTotal += (float)($m['amount'] ?? 0);
-    }
-
-    $adjustedPrice = $basePrice + $modifierTotal;
-
-    /* ===============================
-       6.5) SALES DATA (UNCHANGED)
-    ================================ */
-    $delSales = $db->prepare("DELETE FROM sales_data WHERE config_id=?");
+    $delSales = $db->prepare(
+        "DELETE FROM sales_data WHERE config_id=?"
+    );
     $delSales->bind_param("i", $config_id);
     $delSales->execute();
 
@@ -237,9 +222,9 @@ try {
         if (!isset($s['day_label'])) continue;
 
         $dayLabel     = $s['day_label'];
-        $salePrice   = (float)($s['sale_price'] ?? 0);
-        $marketPrice = (float)($s['market_price'] ?? 0);
-        $volume      = (int)($s['volume'] ?? 0);
+        $salePrice    = (float)($s['sale_price'] ?? 0);
+        $marketPrice  = (float)($s['market_price'] ?? 0);
+        $volume       = (int)($s['volume'] ?? 0);
 
         $insSales->bind_param(
             "issddi",
@@ -252,37 +237,180 @@ try {
         );
         $insSales->execute();
     }
+}
 
     /* ===============================
-       7) PEG HISTORY (DATE AWARE)
-    ================================ */
+   6.8) PEG POINT UPSERT
+================================ */
+$upsertHist = $db->prepare("
+    INSERT INTO peg_point_history
+  (peg_point_id, day_date, price, qty, created_at)
+  VALUES
+  (?, ?, ?, ?, ?)
+  ON DUPLICATE KEY UPDATE
+  price = VALUES(price),
+  qty   = VALUES(qty),
+  created_at = VALUES(created_at);
+");
+
+if (!$upsertHist) {
+    throw new Exception("Prepare failed (peg_point_history): " . $db->error);
+}
+
+foreach ($points as &$p) {
+
+    $pointId = isset($p['id']) && $p['id']
+        ? (int)$p['id']
+        : null;
+
+    $label   = (string)($p['label'] ?? '');
+    $channel = (string)($p['channel'] ?? '');
+    $url     = (string)($p['url'] ?? '');
+    $price   = (float)($p['price'] ?? 0);
+    $qty     = (int)($p['qty'] ?? 0);
+    $weight  = (float)($p['weight'] ?? 0);
+    $notes   = $p['notes'] ?? null;
+    $pegModifier = (float)($p['peg_modifier'] ?? 0);
+
+    $adjustedPegPrice = $price * (1 + ($pegModifier / 100));
+
+    if ($pointId) {
+        // UPDATE
+        $updPoint->bind_param(
+            "sssdidsddii",
+            $label,
+            $channel,
+            $url,
+            $price,
+            $qty,
+            $weight,
+            $notes,
+            $pegModifier,
+            $adjustedPegPrice,
+            $pointId,
+            $config_id
+        );
+        $updPoint->execute();
+    } else {
+        // INSERT
+        $insPoint->bind_param(
+            "isssdidsdd",
+            $config_id,
+            $label,
+            $channel,
+            $url,
+            $price,
+            $qty,
+            $weight,
+            $notes,
+            $pegModifier,
+            $adjustedPegPrice
+        );
+        $insPoint->execute();
+
+        // CRITICAL FIX
+        $pointId = $db->insert_id;
+        $p['id'] = $pointId; // update in-memory reference
+    }
+
+    //  ALWAYS WRITE HISTORY
+    $upsertHist->bind_param(
+        "isdis",
+        $pointId,
+        $pegDateEST,
+        $price,
+        $qty,
+        $pegDateTimeEST
+    );
+    
+    $upsertHist->execute();
+}
+unset($p); // break reference
+    /* ===============================
+       7) MODIFIERS
+    =============================== */
+    $delMods = $db->prepare("DELETE FROM peg_modifiers WHERE config_id=?");
+if (!$delMods) {
+    throw new Exception("Prepare failed (delete modifiers): " . $db->error);
+}
+$delMods->bind_param("i", $config_id);
+$delMods->execute();
+
+    $insMod = $db->prepare("
+        INSERT INTO peg_modifiers
+        (config_id, label, amount, modifier_type)
+        VALUES (?, ?, ?, ?)
+    ");
+
+    $modifierTotal = 0;
+    $saleModifierTotal = 0;
+
+    foreach ($modifiers as $m) {
+        $label = $m['label'] ?? '';
+        $amt   = (float)($m['amount'] ?? 0);
+        $type  = $m['modifier_type'] ?? 'buy';
+
+        $type === 'sale'
+            ? $saleModifierTotal += $amt
+            : $modifierTotal += $amt;
+
+        $insMod->bind_param("isds", $config_id, $label, $amt, $type);
+        $insMod->execute();
+    }
+
+    /* ===============================
+       8) PEG HISTORY SNAPSHOT (AUTHORITATIVE)
+    =============================== */
+    $basePrice = $basePegPrice;
+    $adjustedPrice = $adjustedSalePrice;
+
+    $marginTotal = $basePrice * ($margin / 100);
+    $pegCore = ($basePrice - $marginTotal) + $modifierTotal;
+
+    $lowBuy  = $pegCore;
+    $highBuy = $pegCore * 1.05;
+
+    error_log("base price". $basePrice);
     $hist = $db->prepare("
         INSERT INTO peg_history
-        (config_id, capacity, interface, condition_type, peg_name,
-         base_price, adjusted_price, margin_percent, inventory_mode, saved_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        (
+            config_id, capacity, interface, condition_type, peg_name,
+            base_price, sale_modifier_total, adjusted_price,
+            modifier_total, low_buy, high_buy,
+            margin_percent, inventory_mode, saved_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON DUPLICATE KEY UPDATE
             peg_name=VALUES(peg_name),
             base_price=VALUES(base_price),
+            sale_modifier_total=VALUES(sale_modifier_total),
             adjusted_price=VALUES(adjusted_price),
+            modifier_total=VALUES(modifier_total),
+            low_buy=VALUES(low_buy),
+            high_buy=VALUES(high_buy),
             margin_percent=VALUES(margin_percent),
             inventory_mode=VALUES(inventory_mode),
             saved_at=VALUES(saved_at)
     ");
 
     $hist->bind_param(
-        "issssdddss",
+        "issssdddddddss",
         $config_id,
         $capacity,
         $interface,
         $condition,
         $pegName,
         $basePrice,
+        $saleModifierTotal,
         $adjustedPrice,
+        $modifierTotal,
+        $lowBuy,
+        $highBuy,
         $margin,
         $inventoryMode,
-        $pegDateTime
+        $pegDateTimeEST
     );
+
     $hist->execute();
 
     $db->commit();
@@ -290,14 +418,12 @@ try {
     echo json_encode([
         'status'    => 'success',
         'config_id' => $config_id,
-        'date'      => $pegDate
+        'saved_at'  => $pegDateTimeEST
     ]);
     exit;
 
 } catch (Throwable $e) {
-
     $db->rollback();
-
     http_response_code(500);
     echo json_encode([
         'status'  => 'error',

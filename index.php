@@ -1,3 +1,15 @@
+<?php
+session_start();
+
+header("Cache-Control: no-store, no-cache, must-revalidate, max-age=0");
+header("Pragma: no-cache");
+header("Expires: 0");
+
+if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
+  header("Location: ./login.html");
+  exit;
+}
+?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -19,7 +31,7 @@
 </button>
   <div class="app-shell">
     <aside class="sidebar">
-
+  <div class="sidebar-content">    
   <div class="sidebar-section collapsed">
     <button class="section-header" data-toggle="pegTableEditor">
       <span>PEG TABLE EDITOR</span>
@@ -54,7 +66,12 @@
 
     </div>
   </div>
-
+      </div>
+<div class="sidebar-footer">
+    <button id="logoutBtn" class="logout-btn">
+      Logout
+    </button>
+  </div>
 </aside>
 
     <main class="main">
@@ -65,7 +82,7 @@
             For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
           </p>
         </div>
-        <div class="badge">Peg Editor</div>
+        <div class="badge">Price Matrix V.2</div>
       </header>
 <div id="chooseCapacityNotice" class="empty-state">
   <h3>Please choose a capacity first</h3>
@@ -80,6 +97,75 @@
 </div>
       <section class="content-layout" id="mainEditorLayout">
         <div class="left-column">
+          <section class="card hidden" id="pegHistorySection">
+            <div class="card-header">
+              <div>
+                <div class="card-title" id="pegHistoryTitle">Peg History</div>
+                <div class="card-subtitle">
+                  Click a peg point above to view its daily price history.
+                </div>
+              </div>
+              <div class="controls-range" style="justify-content:flex-end; margin-bottom:0;">
+                <label>
+                  <span>Range:</span>
+                  <select id="historyRangeSelect">
+                    <option value="7" selected>7 days</option>
+                    <option value="14">14 days</option>
+                    <option value="30">30 days</option>
+                    <option value="90">90 days</option>
+                    <option value="180">180 days</option>
+                    <option value="365">365 days</option>
+                  </select>
+                </label>
+              </div>
+            </div>
+            <div id="pegHistoryMeta">
+              <strong id="pegHistoryLabel">No peg selected</strong>
+              <span id="pegHistoryChannel"></span>
+              <a id="pegHistoryLink" href="#" target="_blank" style="display:none; margin-left:6px;">Open listing</a>
+            </div>
+            <canvas id="pegHistoryChart"></canvas>
+          </section>
+
+          <section id="pegPointHistorySection" class="card">
+    <div class="card-header">
+        <div class="card-title">
+            <div class="card-title" id="pegPointHistoryTitle">
+                PEG Point History
+            </div>
+            <div id="pegPointHistorySubtitle" class="card-subtitle">
+                All PEG point prices over time
+            </div>
+        </div>
+        <div class="controls-range">
+            <label for="pegPointRangeSelect" class="sr-only">
+        Date Range
+      </label>
+            <select id="pegPointRangeSelect" class="range-select">
+        <option value="7">Last 7 days</option>
+        <option value="14">Last 14 days</option>
+        <option value="30" selected>Last 30 days</option>
+        <option value="60">Last 60 days</option>
+        <option value="120">Last 120 days</option>
+        <option value="180">Last 180 days</option>
+        <option value="365">Last 365 days</option>
+        <option value="all">All time</option>
+      </select>
+        </div>
+    </div>
+    <div class="card-body">
+        <div class="chart-container">
+          <div class="peg-point-chart-wrapper">
+            <canvas id="pegPointHistoryChart"></canvas>
+            </div>
+        </div>
+    </div>
+    <div class="card-footer">
+        <div id="pegPointAverages" class="peg-point-averages">
+        </div>
+    </div>
+</section>
+          
           <section class="card">
             <div class="card-header">
               <div>
@@ -106,36 +192,7 @@
             </div>
             <canvas id="pegChart"></canvas>
           </section>
-
-          <section class="card">
-            <div class="card-header">
-              <div>
-                <div class="card-title" id="pegHistoryTitle">Peg History</div>
-                <div class="card-subtitle">
-                  Click a peg point above to view its daily price history.
-                </div>
-              </div>
-              <div class="controls-row" style="justify-content:flex-end; margin-bottom:0;">
-                <label>
-                  <span>Range:</span>
-                  <select id="historyRangeSelect">
-                    <option value="7" selected>7 days</option>
-                    <option value="14">14 days</option>
-                    <option value="30">30 days</option>
-                    <option value="90">90 days</option>
-                    <option value="180">180 days</option>
-                    <option value="365">365 days</option>
-                  </select>
-                </label>
-              </div>
-            </div>
-            <div id="pegHistoryMeta">
-              <strong id="pegHistoryLabel">No peg selected</strong>
-              <span id="pegHistoryChannel"></span>
-              <a id="pegHistoryLink" href="#" target="_blank" style="display:none; margin-left:6px;">Open listing</a>
-            </div>
-            <canvas id="pegHistoryChart"></canvas>
-          </section>
+          
         </div>
         <aside class="card">
           <div class="card-header">
@@ -143,7 +200,10 @@
               <div class="card-title" id="summaryTitle">Capacity Peg Snapshot</div>
               <div class="card-subtitle">Base peg, modifiers, and final buy band for the selected capacity / interface / condition.</div>
             </div>
+            <div class="save-wrapper">
             <button id="savePegBtn" style="display:none;">💾 Save Data</button>
+            <label id="changeIndicator"></label>
+            </div>  
           </div>
 
           <div class="meta-grid">
@@ -165,7 +225,7 @@
             <div>
               <div class="meta-item-label">Modifier total</div>
               <div class="meta-item-value" id="summaryModifiers">$0.00</div>
-              <div class="meta-item-help">Sum of adds/subtracts.</div>
+              <div class="meta-item-help">Sum of adds/subtracts. Sale Price & Low/High Modifier</div>
             </div>
             <div>
               <div class="meta-item-label">Low buy price</div>
@@ -181,10 +241,21 @@
 
           <div class="controls-row">
             <label>
+            <span>Drive Type:</span>
+            <select id="driveTypeSelect">
+            <option value="HDD">HDD</option>
+            <option value="SSD">SSD</option>
+          </select>
+            </label>
+            <label>
               <span>Interface:</span>
               <select id="interfaceSelect">
-                <option value="sata">SATA</option>
-                <option value="sas">SAS</option>
+                  <option value="sata">SATA</option>
+                  <option value="sas">SAS</option>
+                  <option value="nvme">NVMe</option>
+                  <option value="u.2">U.2</option>
+                  <option value="u.3">U.3</option>
+                  <option value="pcie">PCIe</option>
               </select>
             </label>
             <label>
@@ -205,20 +276,9 @@
                 <option value="critical">Critical</option>
               </select>
             </label> -->
-            <label for="marginPercent">Margin %
-  <select id="marginPercent">
-    <option value="50">50%</option>
-    <option value="55">55% </option>
-    <option value="60">60% </option>
-    <option value="65">65%</option>
-    <option value="70">70%</option>
-    <option value="75">75%</option>
-    <option value="80" Selected>80% Default</option>
-    <option value="85">85%</option>
-    <option value="90">90%</option>
-    <option value="95">95%</option>
-    <option value="100">100%</option>
-  </select></label>
+            <label for="marginPercent">Low/High Buy Margin %
+  <input type="number" id="marginPercent" class="input-margin">
+            </label>
           </div>
               
 
@@ -233,28 +293,52 @@
         Open Peg History
       </button>
     </span>
+  </div>     
+  <div class="qty-toggle-wrapper">
+  <input type="checkbox" class="qty-toggle" id="qtyCheckbox">    
+  <label class="lb-qty">Show Qty</label>
   </div>
-
+       
   <div class="field">
     <table class="peg-table peg-table-mb">
+      <colgroup>
+    <col>
+    <col>
+    <col>
+    <col>
+    <col id="col-qty">
+    <col>
+    <col>
+  </colgroup>
       <thead>
-    <tr>
-      <th>Label</th>
-      <th>Channel</th>
-      <th>URL</th>
-      <th>Price</th>
-      <th>Qty</th>
-      <th>Weight</th>
-      <th></th>
-    </tr>
-  </thead>
+  <tr>
+    <th>Label</th>
+    <th>Channel</th>
+    <th>URL</th>
+    <th>Price</th>
+    <th>Qty</th>
+    <th>Weight</th>
+    <th>Additional</th>
+    <th></th>
+  </tr>
+</thead>
       <tbody id="pegTableBody"></tbody>
     </table>
+    <button class="clear-peg-selection" id="clearPegSelectBtn">Clear Peg Selection</button> 
+    <label id="totalWeight">Total Weight:</label>
     <button class="peg-add-row" id="addRowBtn">+ Add peg row</button>
   </div>
-
+<div class="modifier-wrapper">
+  <div class="peg-table-title">Adjusted Sale Price modifiers (optional)</div>
+  <table class="peg-table modifier-table">
+    <tbody id="saleModifierTableBody"></tbody>
+  </table>
+  <button class="peg-add-row" id="addSaleModifierBtn">
+    + Add sale price modifier
+  </button>
+</div>
   <div class="modifier-wrapper">
-    <div class="peg-table-title">Price modifiers (optional)</div>
+    <div class="peg-table-title">Low/High Buy modifiers (optional)</div>
     <table class="peg-table modifier-table">
       <tbody id="modifierTableBody"></tbody>
     </table>
@@ -379,20 +463,48 @@
     + Add New Peg Configuration
 </button>
         <div class="peg-table-wrapper" style="margin-top: 0;">
+
+<div class="peg-history-filters">
+  <span>Filter:</span>
+  <select id="filterDriveType">
+    <option value="">All Drive Types</option>
+    <option value="HDD">HDD</option>
+    <option value="SSD">SSD</option>
+  </select>
+
+  <select id="filterInterface">
+    <option value="">All Interfaces</option>
+    <option value="sata">SATA</option>
+    <option value="sas">SAS</option>
+    <option value="nvme">NVMe</option>
+    <option value="u.2">U.2</option>
+    <option value="u.3">U.3</option>
+    <option value="pcie">PCIe</option>
+  </select>
+
+  <select id="filterCondition">
+    <option value="">All Conditions</option>
+    <option value="new">New</option>
+    <option value="used">Used</option>
+    <option value="recertified">Recertified</option>
+  </select>
+</div>
+
           <table class="peg-table">
             <thead>
               <tr>
-                <th style="width: 12.5%; text-align: center;">View</th>
+                <th style="width: 10%; text-align: center;">View</th>
                 <th style="width: 12.5%;">Date Saved</th>
                 <th style="width: 12.5%;">Peg Name</th>
+                <th style="width: 12.5%;">Drive Type</th>
                 <th style="width: 12.5%;">Base Peg Price</th>
                 <th style="width: 12.5%;">Adjusted Price</th>
-                <th style="width: 12.5%;">Low Buy Price</th>
-                <th style="width: 12.5%;">High Buy Price</th>
+                <th style="width: 8%;">Low Buy Price</th>
+                <th style="width: 8%;">High Buy Price</th>
                 <th style="width: 12.5%; text-align: center;">Delete</th>              </tr>
             </thead>
             <tbody id="pegHistoryTableBody">
-              <tr><td colspan="8" style="text-align:center; color: var(--text-muted);">No history available.</td></tr>
+              <tr><td colspan="9" style="text-align:center; color: var(--text-muted);">No history available.</td></tr>
             </tbody>
           </table>
         </div>
@@ -404,7 +516,7 @@
     <div class="modal-content">
       <h3>All Conditions Exist</h3>
       <p>
-        All <strong>SATA</strong> and <strong>SAS</strong> configurations for this capacity already exist
+        All <strong>Drive Type</strong> and <strong>Interface</strong> configurations for this capacity already exist
         (New, Used, Recertified).
         <br><br>
         Please open <strong>Peg History</strong> to update an existing configuration.
@@ -435,7 +547,7 @@
 
     <div class="modal-footer">
       <button id="appConfirmCancel">Cancel</button>
-      <button id="appConfirmOk" class="danger">Delete</button>
+      <button id="appConfirmOk" class="danger">Yes</button>
     </div>
   </div>
 </div>
@@ -496,9 +608,8 @@
 
   </div>
 </div>
-  
-<script src="js/api.js"></script>
-<script src="js/app.js"></script>
-<script src="js/tableEditor.js"></script>
+<script src="js/auth.js"></script>  
+<script type="module" src="js/api.js"></script>
+<script type="module" src="js/app.js"></script>
 </body>
 </html>

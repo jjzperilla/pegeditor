@@ -1,23 +1,25 @@
 <?php
+require "auth.php";
+requireAuth();
 header("Content-Type: application/json");
 require "db.php";
 
 $capacity  = $_GET['capacity']  ?? null;
 $interface = $_GET['interface'] ?? null;
 $condition = $_GET['condition'] ?? null;
+$date      = $_GET['date']      ?? null; // optional YYYY-MM-DD
 
 if (!$capacity || !$interface || !$condition) {
   echo json_encode([
-    "status" => "error",
+    "status"  => "error",
     "message" => "Missing parameters"
   ]);
   exit;
 }
 
-/*
-  STEP 1:
-  Resolve config_id from peg_configs
-*/
+/* =====================================================
+   STEP 1: Resolve config_id
+===================================================== */
 $stmt = $db->prepare("
   SELECT id
   FROM peg_configs
@@ -33,36 +35,50 @@ $res = $stmt->get_result();
 
 if ($res->num_rows === 0) {
   echo json_encode([
-    "status" => "not_found",
+    "status"  => "not_found",
     "message" => "No peg config found"
   ]);
   exit;
 }
 
-$config = $res->fetch_assoc();
-$configId = (int)$config['id'];
+$configId = (int)$res->fetch_assoc()['id'];
 
-/*
-  STEP 2:
-  Get latest peg_history for this config
-*/
-$stmt = $db->prepare("
-  SELECT
-    adjusted_price,
-    margin_percent
-  FROM peg_history
-  WHERE config_id = ?
-  ORDER BY saved_at DESC
-  LIMIT 1
-");
+/* =====================================================
+   STEP 2: Fetch buy range from peg_history
+===================================================== */
+if ($date) {
+  $stmt = $db->prepare("
+    SELECT
+      low_buy,
+      high_buy,
+      saved_at
+    FROM peg_history
+    WHERE config_id = ?
+      AND DATE(saved_at) = ?
+    ORDER BY saved_at DESC
+    LIMIT 1
+  ");
+  $stmt->bind_param("is", $configId, $date);
+} else {
+  $stmt = $db->prepare("
+    SELECT
+      low_buy,
+      high_buy,
+      saved_at
+    FROM peg_history
+    WHERE config_id = ?
+    ORDER BY saved_at DESC
+    LIMIT 1
+  ");
+  $stmt->bind_param("i", $configId);
+}
 
-$stmt->bind_param("i", $configId);
 $stmt->execute();
 $res = $stmt->get_result();
 
 if ($res->num_rows === 0) {
   echo json_encode([
-    "status" => "not_found",
+    "status"  => "not_found",
     "message" => "No peg history found"
   ]);
   exit;
@@ -70,9 +86,13 @@ if ($res->num_rows === 0) {
 
 $row = $res->fetch_assoc();
 
+/* =====================================================
+   RESPONSE
+===================================================== */
 echo json_encode([
-  "status"         => "success",
-  "config_id"      => $configId,
-  "adjusted_price" => (float)$row["adjusted_price"],
-  "margin_percent" => (float)$row["margin_percent"]
+  "status"    => "success",
+  "config_id"=> $configId,
+  "low_buy"  => (float)$row["low_buy"],
+  "high_buy" => (float)$row["high_buy"],
+  "saved_at" => $row["saved_at"]
 ]);

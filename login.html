@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<link type="text/css" href="css/login.css" rel="stylesheet">
+<title>Login</title>
+
+<style>
+</style>
+</head>
+
+<body>
+
+<div class="login-card">
+  <div class="login-title">Sign in</div>
+  <div class="login-subtitle">Price Matrix access</div>
+
+  <div class="field">
+    <div class="input-wrap">
+      <input
+        type="password"
+        id="password"
+        placeholder="Enter password"
+        autofocus
+      />
+      <button
+        type="button"
+        id="togglePassword"
+        class="toggle-password">
+        Show
+      </button>
+    </div>
+    <div id="errorText" class="error-text"></div>
+  </div>
+  <center>
+  <span style="color:#e26e6e; font-weight:600;">
+    Ongoing maintenance. Please check back shortly.
+  </span>
+</center>
+  <button id="loginBtn" class="login-btn" onclick="login()" disabled>
+    Login
+  </button>
+</div>
+
+<script>
+/* -------------------------------
+   Session expired message
+-------------------------------- */
+const params = new URLSearchParams(window.location.search);
+const errorText = document.getElementById("errorText");
+
+if (params.get("expired")) {
+  errorText.textContent = "Your session has expired. Please sign in again.";
+}
+
+/* -------------------------------
+   Login handler
+-------------------------------- */
+async function login() {
+  const passwordInput = document.getElementById("password");
+  const btn = document.getElementById("loginBtn");
+
+  errorText.textContent = "";
+
+  const password = passwordInput.value.trim();
+  if (!password) {
+    errorText.textContent = "Password is required.";
+    return;
+  }
+
+  btn.disabled = true;
+
+  try {
+    const res = await fetch("api/login.php", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ password })
+    });
+
+    const data = await res.json();
+
+    if (data.status === "success") {
+      window.location.href = "index.php";
+    } else {
+      errorText.textContent = data.message || "Invalid password.";
+    }
+  } catch (e) {
+    errorText.textContent = "Server error. Please try again.";
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+/* -------------------------------
+   Enter key support
+-------------------------------- */
+document.getElementById("password").addEventListener("keydown", e => {
+  if (e.key === "Enter") login();
+});
+
+/* -------------------------------
+   Show / Hide password toggle
+-------------------------------- */
+const pwd = document.getElementById("password");
+const toggle = document.getElementById("togglePassword");
+
+if (pwd && toggle) {
+  toggle.addEventListener("click", () => {
+    if (pwd.type === "password") {
+      pwd.type = "text";
+      toggle.textContent = "Hide";
+    } else {
+      pwd.type = "password";
+      toggle.textContent = "Show";
+    }
+  });
+}
+</script>
+
+</body>
+</html>

@@ -1,4 +1,6 @@
 <?php
+require "auth.php";
+requireAuth();
 header('Content-Type: application/json');
 require 'db.php';
 
