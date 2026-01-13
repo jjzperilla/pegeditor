@@ -1,7 +1,7 @@
 <?php
 $DB_HOST = 'localhost';
 $DB_USER = 'root';
-$DB_PASS = '';
+$DB_PASS = 'ServerTech2025!';
 $DB_NAME = 'pegeditor';
 
 
