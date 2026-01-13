@@ -1661,6 +1661,12 @@ salesTableBody.addEventListener('input', (e) => {
   if (field === 'volume') state.sales[idx].volume = val;
 
   updateSalesChart(currentCapacity);
+  exitHistoryModeIfNeeded();
+  hasUnsavedChanges = true;
+  markUnsaved();
+  scheduleAutosave();
+
+  updateSalesChart(currentCapacity);
 });
 
 
@@ -2981,7 +2987,6 @@ async function confirmIfUnsaved(
   isConfirmingUnsaved = false;
   resumeAutosave();
 
-  // 🔑 IMPORTANT PART
   if (!ok && hasUnsavedChanges) {
     scheduleAutosave();
   }
