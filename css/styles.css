@@ -637,6 +637,8 @@ button#closeAllConditionsModal {
 .hidden {
   display: none;
 }
+
+
 .modal-header {
     display: flex;
     justify-content: space-between;
@@ -1194,12 +1196,12 @@ aside.sidebar.collapsed .capacity-list {
   pointer-events: auto !important;
 }
 
-/* 🔑 Modal overlay must NOT eat clicks */
+/* Modal overlay must NOT eat clicks */
 #pegTableModal .modal-overlay {
   pointer-events: none;
 }
 
-/* 🔑 Modal content still clickable */
+/*Modal content still clickable */
 #pegTableModal .modal-box {
   pointer-events: auto;
   overflow: visible !important;
@@ -1846,4 +1848,48 @@ button#closePegTableModal {
 .save-wrapper {
     width: 120px;
     text-align: center;
+}
+
+.pegHeader {
+    display: flex;
+    align-items: center;
+    width: 100%;
+    justify-content: space-between;
+}
+
+label#settingNames {
+    text-transform: uppercase;
+}
+
+#settingNames {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.setting-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 999px;
+  background: #f1f5f9;
+  color: #0f172a;
+  border: 1px solid #e2e8f0;
+  white-space: nowrap;
+}
+
+@media (max-width: 768px){
+  .setting-badge {
+    font-size: 10px !important;
+    gap: 5px;
+    width: 100px;
+    justify-content: center;
+}
+  #settingNames {
+justify-content: center;
+  }
 }

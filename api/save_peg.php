@@ -39,6 +39,7 @@ $inventoryMode = $payload['inventoryMode'] ?? 'balanced';
 
 /* 🔒 FINAL VALUES FROM UI */
 $basePegPrice = isset($payload['basePegPrice'])? (float)$payload['basePegPrice']: 0;
+$finalBasePegPrice = isset($payload['finalBasePegPrice'])? (float)$payload['finalBasePegPrice']: 0;
 $adjustedPegBase   = (float)($payload['adjustedPegBase'] ?? 0);
 $adjustedSalePrice = (float)($payload['adjustedSalePrice'] ?? 0);
 
@@ -361,11 +362,10 @@ $delMods->execute();
     /* ===============================
        8) PEG HISTORY SNAPSHOT (AUTHORITATIVE)
     =============================== */
-    $basePrice = $basePegPrice;
     $adjustedPrice = $adjustedSalePrice;
 
-    $marginTotal = $basePrice * ($margin / 100);
-    $pegCore = ($basePrice - $marginTotal) + $modifierTotal;
+    $marginTotal = $finalBasePegPrice * ($margin / 100);
+    $pegCore = $finalBasePegPrice - $marginTotal;
 
     $lowBuy  = $pegCore;
     $highBuy = $pegCore * 1.05;
@@ -400,7 +400,7 @@ $delMods->execute();
         $interface,
         $condition,
         $pegName,
-        $basePrice,
+        $finalBasePegPrice,
         $saleModifierTotal,
         $adjustedPrice,
         $modifierTotal,

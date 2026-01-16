@@ -240,6 +240,8 @@ const interfaceSelect = document.getElementById('interfaceSelect');
 const driveTypeSelect = document.getElementById("driveTypeSelect");
 const conditionSelect = document.getElementById('conditionSelect');
 const inventoryModeSelect = document.getElementById('inventoryMode');
+const settingNames = document.getElementById('settingNames');
+const settingNamesContainer = document.getElementById('settingNamesContainer');
 
 const addRowBtn = document.getElementById('addRowBtn');
 const clearPegSelectBtn = document.getElementById('clearPegSelectBtn');
@@ -529,10 +531,12 @@ if (prices.length) {
     "You have unsaved changes. Switching capacity will discard them. Continue?"
   );
   if (!ok) return;
-
+  console.log('capacitybottom clicked');
+  settingNamesContainer.style.display ="none";  
   hasUnsavedChanges = false;
   clearChangeIndicator();
   fetchAndSelectPeg(cap);
+        
 });
       capacityListEl.appendChild(btn);
     });
@@ -977,8 +981,7 @@ function updateSummary(cap) {
      1) BASE PEG (NO MODIFIERS)
   =============================== */
   const { suggested, rawAvg } =
-    computePegFromPoints(block.points || []);
-
+    computePegFromPoints(block.points || []);  
   /* ===============================
      2) MODIFIER TOTALS
   =============================== */
@@ -1029,10 +1032,12 @@ function updateSummary(cap) {
      4) FINAL ADJUSTED SALE PRICE
   =============================== */
   const liveAdjustedSalePrice =
-    adjustedPegBase + saleModifierTotal;
+    adjustedPegBase + buyModifierTotal + saleModifierTotal;
 
   const adjustedSalePrice = liveAdjustedSalePrice;
 
+  //final base peg price
+  const finalBasePegPrice = suggested + buyModifierTotal;
 
   /* ===============================
      5) MARGIN / BUY BAND
@@ -1050,9 +1055,9 @@ function updateSummary(cap) {
     suggested,
     marginPercent
   );
-
-  const adjustedLow =
-    (Number(band.low) || 0) + buyModifierTotal;
+  const baseLowBuy = finalBasePegPrice - (finalBasePegPrice * (marginPercent/100));
+  
+  const adjustedLow = baseLowBuy;
 
   const adjustedHigh = adjustedLow * 1.05;
 
@@ -1063,7 +1068,7 @@ function updateSummary(cap) {
   if (totalWeightEl) {
     const rounded = totalWeight.toFixed(2);
     totalWeightEl.innerHTML =
-      totalWeight < 1
+      totalWeight <= 0.99
         ? `Total Weight: <strong style="color:#f87171">${rounded}</strong> ⚠️ (Less than 1)`
         : `Total Weight: <strong style="color:#34d399">${rounded}</strong>`;
   }
@@ -1071,7 +1076,7 @@ function updateSummary(cap) {
   /* ===============================
      7) SUMMARY UI
   =============================== */
-  summaryBasePeg.textContent = formatMoney(suggested);
+  summaryBasePeg.textContent = formatMoney(finalBasePegPrice);
   summarySuggested.textContent = formatMoney(adjustedSalePrice);
   summaryRawAvg.textContent = formatMoney(rawAvg);
   summaryModifiers.textContent =
@@ -1241,7 +1246,7 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
      2)RECOMPUTE ADJUSTED PEG BASE
   ===================================================== */
   const basePegPrice = Number(state.basePegPrice);
-  
+  console.log(basePegPrice);
   let weightedSum = 0;
   let totalWeight = 0;
 
@@ -1265,16 +1270,24 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
       : 0;
 
   /* =====================================================
-     3) SALE MODIFIERS
+     3) SALE MODIFIERS & basePegPrice with modifier
   ===================================================== */
   const saleModifierTotal =
     state.saleModifiers.reduce(
       (s, m) => s + (Number(m.amount) || 0),
       0
     );
+  
+  const buyModifier =
+    state.modifiers.reduce(
+      (s, m) => s + (Number(m.amount) || 0),
+      0
+    );
 
   const adjustedSalePrice =
-    adjustedPegBase + saleModifierTotal;
+    adjustedPegBase + saleModifierTotal + buyModifier;
+  
+  const finalBasePegPrice = basePegPrice + buyModifier; 
 
   /* =====================================================
      4) BUILD PAYLOAD
@@ -1291,6 +1304,7 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
     adjustedPegBase,
     adjustedSalePrice,
     basePegPrice,
+    finalBasePegPrice,
 
     peg: {
       points: state.points.map(p => ({
@@ -1574,6 +1588,9 @@ pegTableBody.addEventListener('click', (e) => {
     if (!arr) return;
     arr.splice(idx, 1);
     refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey);
+    hasUnsavedChanges = true;
+    markUnsaved();
+    scheduleAutosave();
   }
 });
 
@@ -1606,6 +1623,9 @@ modifierTableBody.addEventListener('click', (e) => {
     const arr = pegDataState[currentCapacity]?.modifiers || [];
     arr.splice(idx, 1);
     refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey);
+    hasUnsavedChanges = true;
+    markUnsaved();
+    scheduleAutosave();
   }
 });
 
@@ -1735,6 +1755,9 @@ saleModifierTableBody?.addEventListener('click', (e) => {
 
   renderSaleModifierTable(currentCapacity);
   updateSummaryUI(currentCapacity);
+  hasUnsavedChanges = true;
+  markUnsaved();
+  scheduleAutosave();
 });
 
 
@@ -1762,7 +1785,7 @@ addNewCapacityBtn.addEventListener('click', async () => {
 
 // history view button
 document.getElementById('pegHistoryTableBody').addEventListener('click', async (e) => {
-
+updateSettingNames();
   // VIEW HISTORY
 if (e.target.dataset.action === 'viewHistory') {
   avgPegCard.style.display = 'none';
@@ -1771,6 +1794,7 @@ if (e.target.dataset.action === 'viewHistory') {
   if (!currentCapacity || !historyId) return;
   loadSelectedHistoryById(currentCapacity, historyId);
   loadPegPointHistory();
+  settingNamesContainer.style.display ="block";   
   return;
 }
 
@@ -1814,7 +1838,6 @@ pegHistoryByCapacity[currentCapacity] = res.history || [];
   // RESET STATE AFTER DELETE
   window.currentConfigId = null;
   isCreatingNewConfig = false;
-
   // Optional safety reset
   window.originalInterface = null;
   window.originalCondition = null;
@@ -1979,7 +2002,7 @@ async function handleInterfaceOrConditionChange() {
   loadPegPointHistory();
   showPegPointHistorySection();
   updateSummary(currentCapacity);
-
+  updateSettingNames();
 }
 
 
@@ -3040,4 +3063,21 @@ function pauseAutosave() {
 
 function resumeAutosave() {
   autosavePaused = false;
+}
+
+function updateSettingNames() {
+  const root = document.getElementById("settingNames");
+  if (!root) return;
+
+  const badges = {
+    capacity:  `Capacity: ${currentCapacity || "—"}`,
+    drive:     `Drive: ${driveTypeSelect?.value || "—"}`,
+    interface: `Interface: ${currentInterfaceKey || "—"}`,
+    condition: `Condition: ${currentConditionKey || "—"}`
+  };
+
+  Object.entries(badges).forEach(([key, text]) => {
+    const el = root.querySelector(`.setting-badge[data-key="${key}"]`);
+    if (el) el.textContent = text;
+  });
 }

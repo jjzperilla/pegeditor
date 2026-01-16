@@ -14,7 +14,6 @@ export function computePeg(points) {
 
   let weightedSum = 0;
   let totalWeight = 0;
-  let rawSum = 0;
 
   let noWeights = true;
   points.forEach(p => {
@@ -27,11 +26,10 @@ export function computePeg(points) {
 
     weightedSum += price * weight;
     totalWeight += weight;
-    rawSum += price;
   });
 
   const suggested = totalWeight > 0 ? weightedSum / totalWeight : 0;
-  const rawAvg = rawSum / points.length;
+  const rawAvg    = totalWeight > 0 ? weightedSum / totalWeight : 0;
 
   const labels = points.map(p => p.label || "Point");
   const prices = points.map(p => Number(p.price) || 0);
@@ -43,6 +41,7 @@ export function computePeg(points) {
 
   return { labels, prices, weightsPercent, suggested, rawAvg };
 }
+
 
 /* =====================================================
    BUY BAND COMPUTATION  (INPUT)
@@ -112,7 +111,8 @@ export function computePegFromPoints(points = []) {
   }
 
   const suggested = totalWeight > 0 ? weightedSum / totalWeight : 0;
-  const rawAvg = points.length > 0 ? rawSum / points.length : 0;
+  const rawAvg = totalWeight > 0 ? weightedSum / totalWeight : 0;
+
 
   const labels = points.map((p, i) => p.label || `Point ${i + 1}`);
   const prices = points.map(p => Number(p.price) || 0);

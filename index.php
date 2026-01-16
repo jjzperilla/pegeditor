@@ -82,22 +82,32 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
             For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
           </p>
         </div>
-        <div class="badge">Price Matrix V.2</div>
+        <div class="badge">Price Matrix V.2.1</div>
       </header>
 <div id="chooseCapacityNotice" class="empty-state">
   <h3>Please choose a capacity first</h3>
   <p>Select a capacity from the list to view sales data, peg inputs, and price history.</p>
 </div>
   <div id="chartsContainer">
+    <div class="pegHeader">
         <div id="pegNameContainer" style="margin: 10px 0;">
-    <label style="font-weight:600;">Configuration Name:</label>
-    <input id="pegNameInput"
+          <label style="font-weight:600;">Configuration Name:</label>
+          <input id="pegNameInput"
            type="text"
            placeholder="Enter a PEG name (optional)">
-</div>
+        </div>
+      <div id="settingNamesContainer">
+      <label style="font-weight:600;" id="settingNames">
+  <span class="setting-badge" data-key="capacity"></span>
+  <span class="setting-badge" data-key="drive"></span>
+  <span class="setting-badge" data-key="interface"></span>
+  <span class="setting-badge" data-key="condition"></span>
+        </label>
+        </div>
+      </div>
       <section class="content-layout" id="mainEditorLayout">
         <div class="left-column">
-          <section class="card hidden" id="pegHistorySection">
+          <section class="card" id="pegHistorySection">
             <div class="card-header">
               <div>
                 <div class="card-title" id="pegHistoryTitle">Peg History</div>
