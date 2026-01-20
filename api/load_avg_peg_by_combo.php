@@ -29,11 +29,19 @@ SELECT
   c.condition_type,
   AVG(h.price) AS avg_price
 FROM peg_point_history h
-JOIN peg_points p   ON p.id = h.peg_point_id
-JOIN peg_configs c  ON c.id = p.config_id
-WHERE
-  c.capacity = ?
-  AND h.day_date >= CURDATE() - INTERVAL ? DAY
+JOIN (
+  SELECT p1.id, p1.config_id
+  FROM peg_points p1
+  JOIN (
+    SELECT config_id, label, MAX(id) AS max_id
+    FROM peg_points
+    WHERE weight IS NOT NULL AND weight > 0
+    GROUP BY config_id, label
+  ) x ON x.max_id = p1.id
+) ap ON ap.id = h.peg_point_id
+JOIN peg_configs c ON c.id = ap.config_id
+WHERE c.capacity = ?
+  AND h.day_date >= (CURDATE() - INTERVAL ? DAY)
 GROUP BY
   h.day_date,
   c.interface,
@@ -41,6 +49,7 @@ GROUP BY
 ORDER BY
   h.day_date ASC
 ";
+
 
 $stmt = $db->prepare($sql);
 $stmt->bind_param('si', $capacity, $days);

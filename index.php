@@ -82,12 +82,44 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
             For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
           </p>
         </div>
-        <div class="badge">Price Matrix V.2.1</div>
+        <div class="badge">Price Matrix V.2.2</div>
       </header>
-<div id="chooseCapacityNotice" class="empty-state">
-  <h3>Please choose a capacity first</h3>
-  <p>Select a capacity from the list to view sales data, peg inputs, and price history.</p>
+  <!-- new graph -->
+  <div class="card allcaps-card" id="allCapacityChart">
+  <div class="allcaps-header">
+    <div>
+      <div class="allcaps-title">All Capacities — Avg PEG Over Time</div>
+      <div class="allcaps-subtitle">Daily AVG price from Points History</div>
+    </div>
+
+    <div class="allcaps-controls">
+      <label for="allCapsRange" style="font-size:13px;">Date Range:</label>
+      <select id="allCapsRange" class="select">
+        <option value="7">Last 7d</option>
+        <option value="30" selected>Last 30d</option>
+        <option value="90">Last 90d</option>
+        <option value="180">Last 180d</option>
+        <option value="365">Last 365d</option>
+      </select>
+      <button id="allCapsRefresh" class="all-cap-btn" hidden>Refresh</button>
+    </div>
+  </div>
+
+<div class="allcaps-chartbox">
+  <canvas id="allCapsChart"></canvas>
 </div>
+
+<!-- Summary below -->
+<div class="cap-summary">
+  <div class="cap-summary-head">
+    <div class="cap-summary-title">Capacity Summary - AVG</div>
+    <div class="cap-summary-note" id="capSummaryNote">—</div>
+  </div>
+  <div id="capSummaryList" class="cap-summary-list"></div>
+</div>
+</div>      
+      
+      
   <div id="chartsContainer">
     <div class="pegHeader">
         <div id="pegNameContainer" style="margin: 10px 0;">
@@ -141,7 +173,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
     <div class="card-header">
         <div class="card-title">
             <div class="card-title" id="pegPointHistoryTitle">
-                PEG Point History
+                Adjusted PEG Point Price History
             </div>
             <div id="pegPointHistorySubtitle" class="card-subtitle">
                 All PEG point prices over time
@@ -621,5 +653,6 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
 <script src="js/auth.js"></script>  
 <script type="module" src="js/api.js"></script>
 <script type="module" src="js/app.js"></script>
+  <script src="js/mainChart.js"></script>
 </body>
 </html>

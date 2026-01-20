@@ -258,6 +258,20 @@ if (!$upsertHist) {
     throw new Exception("Prepare failed (peg_point_history): " . $db->error);
 }
 
+$upsertAdjHist = $db->prepare("
+  INSERT INTO adjusted_peg_price_history
+    (peg_point_id, day_date, adjusted_peg_price, created_at)
+  VALUES
+    (?, ?, ?, ?)
+  ON DUPLICATE KEY UPDATE
+    adjusted_peg_price = VALUES(adjusted_peg_price),
+    created_at = VALUES(created_at)
+");
+if (!$upsertAdjHist) {
+  throw new Exception("Prepare failed (adjusted_peg_price_history): " . $db->error);
+}    
+    
+    
 foreach ($points as &$p) {
 
     $pointId = isset($p['id']) && $p['id']
@@ -325,6 +339,15 @@ foreach ($points as &$p) {
     );
     
     $upsertHist->execute();
+    
+$upsertAdjHist->bind_param(
+  "isds",
+  $pointId,
+  $pegDateEST,
+  $adjustedPegPrice,
+  $pegDateTimeEST
+);
+$upsertAdjHist->execute();
 }
 unset($p); // break reference
     /* ===============================

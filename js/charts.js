@@ -265,7 +265,7 @@ export function createSalesChart(initialData) {
   });
 }
 
-//peg point history
+//peg point history //pegPointHistoryChart //Adjusted Peg Price 
 export function buildPegPointDatasets(series) {
   const dateSet = new Set();
 
@@ -346,7 +346,7 @@ export function renderPegPointHistoryChart(seriesMap) {
           type: "category",
           title: {
             display: true,
-            text: "Day"
+            text: "Date"
           }
         },
         y: {
@@ -392,11 +392,10 @@ export function highlightSelectedPegPoint() {
 
 export function clearPegPointHistoryChart() {
   if (!pegPointHistoryChartInstance) {
-    console.warn("⚠️ pegPointHistoryChartInstance not initialized");
+    console.warn("pegPointHistoryChartInstance not initialized");
     return;
   }
 
-  console.log("🧹 Clearing PEG Point History chart");
 
   pegPointHistoryChartInstance.data.labels = [];
   pegPointHistoryChartInstance.data.datasets = [];
@@ -406,6 +405,3 @@ export function clearPegPointHistoryChart() {
   const avg = document.getElementById("pegPointAverages");
   if (avg) avg.innerHTML = "";
 }
-
-// Provide updateSalesChart, createPegChart, updatePegChart, updatePegHistoryChart similarly.
-// For brevity: reuse the implementations from your original file but exported as functions.

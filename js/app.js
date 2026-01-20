@@ -24,7 +24,7 @@
  * - pegChart
  * - pegHistoryChart
  * - avgPegChart
- * - pegPointHistoryChartInstance
+ * - pegPointHistoryChartInstance - pegPointHistorySection
  *
  * Rule:
  * - app.js OWNS state
@@ -82,6 +82,7 @@ const appConfirmOk = document.getElementById('appConfirmOk');
 const appConfirmCancel = document.getElementById('appConfirmCancel');
 const saleModifierTableBody =document.getElementById('saleModifierTableBody');
 let confirmResolver = null;
+let pegPointHistoryMetric = "base";
 
 function appConfirm(message, title = 'Confirm') {
   appConfirmTitle.textContent = title;
@@ -235,6 +236,8 @@ const salesTableBody = document.getElementById('salesTableBody');
 const pegTableBody = document.getElementById('pegTableBody');
 const modifierTableBody = document.getElementById('modifierTableBody');
 const pegHistoryTableBody = document.getElementById('pegHistoryTableBody');
+const allCapacityChart = document.getElementById('allCapacityChart');
+
 
 const interfaceSelect = document.getElementById('interfaceSelect');
 const driveTypeSelect = document.getElementById("driveTypeSelect");
@@ -531,7 +534,7 @@ if (prices.length) {
     "You have unsaved changes. Switching capacity will discard them. Continue?"
   );
   if (!ok) return;
-  console.log('capacitybottom clicked');
+  allCapacityChart.style.display ="none";
   settingNamesContainer.style.display ="none";  
   hasUnsavedChanges = false;
   clearChangeIndicator();
@@ -1440,11 +1443,11 @@ const sidebar = document.querySelector('.sidebar');
 if (sidebar && window.innerWidth <= 768) {
   sidebar.classList.add('collapsed');
 }
-
-  mainEditorLayout.style.display = 'none';
-  pegDataHistoryCard.style.display = 'block';
-  savePegBtn.style.display = 'none';
-  avgPegCard.style.display = 'flex';
+pegNameContainer.style.display = 'none';
+mainEditorLayout.style.display = 'none';
+savePegBtn.style.display = 'none';
+pegDataHistoryCard.style.display = 'block';
+avgPegCard.style.display = 'flex';
 createOrRecreateAvgPegChart();
 
 const days = Number(document.getElementById('avgPegRange')?.value || 30);
@@ -1457,7 +1460,7 @@ showPegHistoryLoading();
 const result = await api.loadHistory(capacityKey);
 pegHistoryByCapacity[capacityKey] = result.history || [];
 pegNameInput.value = "";
-pegNameContainer.style.display = 'none';
+
 renderPegHistoryTable(capacityKey);
 }
 
@@ -2028,6 +2031,7 @@ async function init() {
 }
 
 initPrevSelectors();
+  settingNamesContainer.style.display ="none";  
   pegDataHistoryCard.style.display = 'none';
   hideEditorOnMobile();
   showChooseCapacityState();
@@ -2812,7 +2816,7 @@ if (rangeSelect) {
 }
 
 async function loadPegPointHistory() {
-
+  
   const capacity  = currentCapacity;
   const iface     = currentInterfaceKey;
   const driveType = driveTypeSelect.value;
@@ -2836,7 +2840,7 @@ async function loadPegPointHistory() {
     params.append("days", pegPointHistoryRange);
   }
 
-  const res = await fetch(`./api/load_peg_point_history.php?${params.toString()}`);
+  const res = await fetch(`./api/load_adjusted_peg_point_history.php?${params.toString()}`);
   const json = await res.json();
 
   if (json.status !== "ok") {
@@ -2860,7 +2864,7 @@ function groupPegPointSeries(rows) {
   for (const r of rows) {
     if (!map[r.peg_point_id]) {
       map[r.peg_point_id] = {
-        label: r.peg_label || `PEG ${r.peg_point_id}`,
+        label: r.peg_label || `PEG ${r.label}`,
         points: []
       };
     }
