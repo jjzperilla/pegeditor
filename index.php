@@ -24,6 +24,8 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
 
 </head>
 <body>
+
+  
   <button id="sidebarSlideToggle"
         class="sidebar-slide-toggle"
         aria-expanded="true">
@@ -68,22 +70,44 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
   </div>
       </div>
 <div class="sidebar-footer">
+    <button id="homeBtn" class="home-btn">Home</button>
     <button id="logoutBtn" class="logout-btn">
       Logout
     </button>
   </div>
 </aside>
-
     <main class="main">
+      <div id="viewOnlyBanner">
+  👀 View mode: someone else is editing this PEG right now.
+</div>
       <header class="page-header">
+        
         <div>
           <div class="page-title">Capacity Pegs</div>
           <p class="page-subtitle">
             For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
           </p>
         </div>
-        <div class="badge">Price Matrix V.2.2</div>
+        <div class="badge">Price Matrix V.2.3</div>
       </header>
+ <div id="pegBreadcrumb" class="peg-breadcrumb">
+  <button class="crumb-link" data-action="goHome">Home</button>
+
+  <span id="crumbHistoryWrap" class="crumb-history hidden">
+    <span class="crumb-sep">›</span>
+    <button class="crumb-link" data-action="goHistory">
+      Peg Data History
+    </button>
+  </span>
+
+  <span id="crumbEditorWrap" class="crumb-editor hidden">
+    <span class="crumb-sep">›</span>
+    <span class="crumb-current">Peg Editor</span>
+  </span>
+</div>
+    
+      
+      
   <!-- new graph -->
   <div class="card allcaps-card" id="allCapacityChart">
   <div class="allcaps-header">
@@ -118,8 +142,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
   <div id="capSummaryList" class="cap-summary-list"></div>
 </div>
 </div>      
-      
-      
+          
   <div id="chartsContainer">
     <div class="pegHeader">
         <div id="pegNameContainer" style="margin: 10px 0;">
@@ -208,7 +231,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
     </div>
 </section>
           
-          <section class="card">
+          <section class="card" id="pegInputsChart">
             <div class="card-header">
               <div>
                 <div class="card-title" id="pegChartTitle">Peg Inputs</div>
@@ -324,7 +347,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
           </div>
               
 
-          <div class="peg-table-wrapper" id="pegInputsRoot">
+  <div class="peg-table-wrapper" id="pegInputsRoot">
   <div class="peg-table-title">
     <span>Peg inputs (editable)</span>
     <span>
@@ -341,35 +364,40 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
   <label class="lb-qty">Show Qty</label>
   </div>
        
-  <div class="field">
+<div class="field">
+  <div class="peg-table-scroll">
     <table class="peg-table peg-table-mb">
       <colgroup>
-    <col>
-    <col>
-    <col>
-    <col>
-    <col id="col-qty">
-    <col>
-    <col>
-  </colgroup>
+        <col>
+        <col>
+        <col>
+        <col>
+        <col id="col-qty">
+        <col>
+        <col>
+        <col>
+      </colgroup>
       <thead>
-  <tr>
-    <th>Label</th>
-    <th>Channel</th>
-    <th>URL</th>
-    <th>Price</th>
-    <th>Qty</th>
-    <th>Weight</th>
-    <th>Additional</th>
-    <th></th>
-  </tr>
-</thead>
+        <tr>
+          <th>Label</th>
+          <th>Channel</th>
+          <th>URL</th>
+          <th>Price</th>
+          <th>Qty</th>
+          <th>Weight</th>
+          <th>Additional</th>
+          <th>OOS</th>
+          <th></th>
+        </tr>
+      </thead>
       <tbody id="pegTableBody"></tbody>
     </table>
-    <button class="clear-peg-selection" id="clearPegSelectBtn">Clear Peg Selection</button> 
-    <label id="totalWeight">Total Weight:</label>
-    <button class="peg-add-row" id="addRowBtn">+ Add peg row</button>
   </div>
+
+  <button class="clear-peg-selection" id="clearPegSelectBtn">Clear Peg Selection</button>
+  <label id="totalWeight">Total Weight:</label>
+  <button class="peg-add-row" id="addRowBtn">+ Add peg row</button>
+</div>
 <div class="modifier-wrapper">
   <div class="peg-table-title">Adjusted Sale Price modifiers (optional)</div>
   <table class="peg-table modifier-table">

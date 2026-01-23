@@ -30,6 +30,11 @@
       flex-direction: column;
       gap: 16px;
     }
+
+/* default */
+#settingNamesContainer, #pegDataHistoryCard, #pegHistorySection, #pegPointHistorySection{
+  display:none;
+}
 /* Scrollable area */
 .sidebar-content {
 flex: 1;
@@ -41,14 +46,17 @@ overflow-y: auto;
 
 /* Fixed bottom area */
 .sidebar-footer {
-  flex-shrink: 0;               
-  background: #111827;
-  border-top: 1px solid rgba(255,255,255,0.08);
-  padding: 12px;
+    flex-shrink: 0;
+    background: #111827;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 12px;
+    gap: 10px;
+    display: flex;
+    flex-direction: column;
 }
 
 /* Logout button styling */
-.logout-btn {
+.logout-btn, .home-btn {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
@@ -61,7 +69,7 @@ overflow-y: auto;
   cursor: pointer;
 }
 
-.logout-btn:hover {
+.logout-btn:hover, home-btn:hover {
   background: #374151;
 }
 
@@ -331,6 +339,7 @@ overflow-y: auto;
       margin-top: 8px;
       border-top: 1px solid var(--border-subtle);
       padding-top: 8px;
+      overflow-x: auto;
     }
 
     .peg-table-title {
@@ -345,11 +354,21 @@ overflow-y: auto;
     }
 
     .peg-table {
-      width: 100%;
+      min-width: 100%;
       border-collapse: collapse;
       font-size: 13px;
     }
 
+.peg-table input {
+  min-width: 4rem;
+}
+.peg-table input[type="checkbox"] {
+    min-width: 1rem;
+}
+
+.field {
+    margin-right: -50px;
+}
     .peg-table th,
     .peg-table td {
       padding: 4px 6px;
@@ -413,7 +432,7 @@ display: flex;
     cursor: pointer;
 }
 
-.peg-add-row:hover, .peg-delete-row:hover {
+.peg-add-row:hover, .peg-delete-row:hover, .clear-peg-selection:hover {
 background-color: aliceblue;
 outline: 0;
 }
@@ -696,6 +715,10 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
     flex-direction: column;
     gap: 16px;
   }
+  #viewOnlyBanner {
+margin: 0 20px;
+font-size: 12px;
+}
 }
 
 /** mobile view **/
@@ -707,16 +730,17 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
 
   aside.sidebar {
     position: fixed;
+    max-height: 100vh;
+    max-height: 100svh;
+    max-height: 100dvh;
     top: 0;
     left: 0;
     width: 260px;
     max-width: 85%;
-    height: 100vh;
-    height: 100svh;  
-    height: 100dvh;
     background: #111827;
     z-index: 1000;
     overflow: hidden; 
+    padding-top: 56px;
   }
 .sidebar-content {
     max-height: 100vh; 
@@ -727,14 +751,17 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
   }
   
   .sidebar-footer {
-    width: 260px;
-    max-width: 85%;
-    height: 64px;
-    background: #111827;
-    border-top: 1px solid rgba(255,255,255,0.08);
-    padding: 12px;
-    z-index: 1001;
-    align-self: center;
+  width: 260px;
+  max-width: 85%;
+  height: 64px;
+  background: #111827;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  padding: 12px;
+  z-index: 1001;
+  align-self: center;
+  display: flex;
+  flex-direction: row;
+    
   }
   
   aside.sidebar.collapsed {
@@ -769,6 +796,8 @@ button#appAlertOk:hover, button#appConfirmCancel:hover {
 
 }
 
+
+/** mobile chart**/
 @media (max-width: 768px) {
 
   #pegChart {
@@ -908,21 +937,10 @@ aside.sidebar.collapsed .capacity-list {
 
 /* Mobile behavior (slide + collapse) */
 @media (max-width: 768px) {
-
-  aside.sidebar {
-    position: fixed;
-    height: 100vh;
-    width: 260px;
-    max-width: 85%;
-    left: 0;
-    top: 0;
-    z-index: 1000;
-    background: #111827;
-  }
-
   aside.sidebar.collapsed {
     transform: translateX(-100%);
     width: 260px;
+    height: 100%;
   }
 
   .sidebar-slide-toggle {
@@ -946,13 +964,6 @@ aside.sidebar.collapsed .capacity-list {
 @media (max-width: 768px) {
   .sidebar-slide-toggle {
     display: inline-flex;
-  }
-}
-
-/* Sidebar top padding to make room for toggle */
-@media (max-width: 768px) {
-  aside.sidebar {
-    padding-top: 56px; /* space for toggle button */
   }
 }
 
@@ -1881,11 +1892,14 @@ label#settingNames {
   .setting-badge {
     font-size: 10px !important;
     gap: 5px;
-    width: 100px;
+    width: 140px;
     justify-content: center;
 }
   #settingNames {
 justify-content: center;
+  }
+  .qty-toggle-wrapper{
+    width:120px;
   }
 }
 
@@ -2052,4 +2066,109 @@ justify-content: center;
 .all-cap-btn:hover{
   cursor: pointer;
   background-color: aliceblue;
+}
+
+#viewOnlyBanner{
+  padding: 10px;
+    border-radius: 8px;
+ background: rgb(255 233 231);
+    border: 1px solid rgb(254 195 182);
+    display: none;
+    position: fixed;
+    margin: 0;
+    align-self: center;
+}
+
+/* Breadcrumb container */
+.peg-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  margin: 8px 0 12px;
+  background: #f9fafb;
+  border: 1px solid #e5e7eba8;
+  border-radius: 12px;
+  font-size: 12px;
+  user-select: none;
+  /* mobile friendly */
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  white-space: nowrap;
+}
+
+/* hide scrollbar but keep scroll */
+.peg-breadcrumb::-webkit-scrollbar {
+  display: none;
+}
+.peg-breadcrumb {
+  scrollbar-width: none;
+}
+
+/* Clickable crumbs (pills) */
+.crumb-link {
+  flex: 0 0 auto;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+  padding: 8px 12px;        /* touch friendly */
+  font-weight: 600;
+  color: #2563eb;
+  cursor: pointer;
+  transition: all .15s ease;
+  line-height: 1;
+  font-size: 11px;
+}
+
+.crumb-link:hover {
+  background: #eff6ff;
+  border-color: #bfdbfe;
+}
+
+/* Separator */
+.crumb-sep {
+  flex: 0 0 auto;
+  color: #9ca3af;
+  font-size: 14px;
+  padding: 0 2px;
+}
+
+/* Current page (non-clickable) */
+.crumb-current {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  font-weight: 700;
+  color: #374151;
+  line-height: 1;
+
+  background: #f3f4f6;      /* slightly highlighted */
+  border: 1px solid #e5e7eb;
+  border-radius: 999px;
+}
+
+/* Wrap blocks follow scroll too */
+.crumb-history,
+.crumb-editor {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hidden {
+  display: none !important;
+}
+
+/* Optional: smaller on very small screens */
+@media (max-width: 746px) {
+  .crumb-link,
+  .crumb-current {
+    padding: 7px 10px;
+    font-size: 11px;
+  }
+  .peg-breadcrumb {
+  padding: 8px 8px 0 10px;
+}
+  .crumb-editor{
+    margin-bottom: 8px;
+  }
 }

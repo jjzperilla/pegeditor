@@ -26,7 +26,7 @@ window.api = {
 
     return {
       history: res.history.map(h => ({
-        date: h.date,                // ⚠️ DO NOT TOUCH DATE
+        date: h.date,             
         price: Number(h.price) || 0
       }))
     };

@@ -32,7 +32,6 @@
  * - helpers/* ONLY compute
  * =====================================================
  */
-
 let idleTimer = null;
 const IDLE_LIMIT = 30 * 60 * 1000;
 
@@ -54,11 +53,13 @@ function forceLogout() {
 resetIdleTimer();
 
 import { setPegSheetInstance } from './tableEditor.js';
-import { isValidPegRow, showPegHistoryLoading, updatePegRowAdjustedUI, hexToRgba } from './helpers/helpers.js';
+import { breadcrumbEditor, breadcrumbHome, breadcrumbHistory } from './helpers/format.js';
+import { isValidPegRow, showPegHistoryLoading, updatePegRowAdjustedUI, hexToRgba, buildOOSSummaryEmail } from './helpers/helpers.js';
 import { refreshChart, highlightSelectedPegPoint, createPegChart, createSalesChart, createPegHistoryChart, buildPegPointDatasets, renderPegPointHistoryChart, clearPegPointHistoryChart} from './charts.js';
 import {computePeg, computeBandPricesFromMargin, computeTotalWeight, computeTotalAdjustedPeg, recomputeRowAdjustedPegPrices, computePegFromPoints, computeAdjustedPeg, computePegPointAverages } from './helpers/computation.js';
 import {getEffectiveDate, getPreviousWeekDates, normalizeSalesToPreviousWeek, formatSaveTime, normalizeDate} from './helpers/date.js';
 import {formatMoney, escapeHtml, capitalize } from './helpers/format.js';
+import { startPegLock, stopPegLock, getIsViewMode,  applyLocks } from "./helpers/setViewMode.js";
 import {
   clearPegHistory,
   showPegHistorySection,
@@ -232,6 +233,8 @@ async function loadPegForDate(selectedDate) {
 // --------- DOM refs ----------
 const capacityListEl = document.getElementById('capacityList');
 
+
+
 const salesTableBody = document.getElementById('salesTableBody');
 const pegTableBody = document.getElementById('pegTableBody');
 const modifierTableBody = document.getElementById('modifierTableBody');
@@ -314,6 +317,8 @@ const filterInterface   = document.getElementById('filterInterface');
 const filterCondition   = document.getElementById('filterCondition');
 
 // --------- State ----------
+let currentConfigId = null;
+let prevViewMode = false;
 let capacities = [];
 let currentCapacity = null;
 let currentInterfaceKey = interfaceSelect.value || 'sata';
@@ -334,21 +339,36 @@ let isViewingHistory = false;
 let pegPointHistoryRange = 30;
 let pegPointHistoryData  = [];
 let selectedPegPointId = null;
-let autosaveTimer = null;
-const AUTOSAVE_DELAY = 10000; 
-let isAutosaving = false;
 let pegPointHistoryChartInstance = null;
 let lastSavedAt = null;
 let isConfirmingUnsaved = false;
-let autosavePaused = false;
 let idlePaused = false;
 let suppressSelectorEvents = false;
 let isRestoringSelectors = false;
+
+let autosavePaused = false;
+let autosaveTimer = null;
+const AUTOSAVE_DELAY = 10000; 
+let autosaveToken = 0; 
+let isAutosaving = false;
+let autosaveContext = null; 
 
 const INTERFACES_BY_TYPE = {
   HDD: ['sata', 'sas'],
   SSD: ['sata', 'sas', 'nvme', 'u.2', 'u.3']
 };
+
+
+const state = getCurrentPegBlock();
+
+const emailDraft = buildOOSSummaryEmail({
+  cap: currentCapacity,
+  iface: currentInterfaceKey,
+  cond: currentConditionKey,
+  driveType: driveTypeSelect?.value,
+  points: state?.points || []
+});
+
 
 function setActivePegPointIndex(idx) {
   activePegPointIndex = idx;
@@ -529,11 +549,14 @@ if (prices.length) {
       btn.innerHTML =
         `<span class="label">${cap}</span><span class="meta">${status}</span>`;
 
-      btn.addEventListener('click', async () => {
+btn.addEventListener('click', async () => {
   const ok = await confirmIfUnsaved(
     "You have unsaved changes. Switching capacity will discard them. Continue?"
   );
   if (!ok) return;
+  breadcrumbHistory();
+  cancelAutosave();
+  stopPegLock();
   allCapacityChart.style.display ="none";
   settingNamesContainer.style.display ="none";  
   hasUnsavedChanges = false;
@@ -623,7 +646,9 @@ function renderPegTable(cap, iface, cond) {
   <span class="chevron">▼</span>
 </button>
   </td>
-
+<td>
+  <input type="checkbox" data-field="oos" ${Number(p.oos) === 1 ? 'checked' : ''}>
+</td>
   <td class="row-actions">
     <button data-action="deleteRow">X</button>
   </td>
@@ -697,7 +722,10 @@ if (adjusted !== null) {
        ROW CLICK → HISTORY
     ========================= */
     tr.addEventListener('click', (e) => {
-      if (e.target.closest('button')) return;
+      if (
+    e.target.closest('button') ||
+    e.target.closest('input[type="checkbox"]')
+  ) return;
 
       const block = getCurrentPegBlock();
       if (!block?.points?.[idx]) return;
@@ -761,7 +789,7 @@ document.addEventListener('input', (e) => {
 
   const block = getCurrentPegBlock();
   if (!block || !block.points?.[idx]) return;
-
+  startPegLock();
   hasUnsavedChanges = true;
   exitHistoryModeIfNeeded();
   markUnsaved();
@@ -1163,7 +1191,10 @@ async function fetchPegDataFor(
         weight: Number(p.weight) || 0,
         notes: p.notes ?? '',
         peg_modifier: Number(p.peg_modifier) || 0,
-        adjusted_peg_price: Number(p.adjusted_peg_price) || 0
+        adjusted_peg_price: Number(p.adjusted_peg_price) || 0,
+        oos: Number(p.oos) === 1 ? 1 : 0,
+        oos_notified_at: p.oos_notified_at ?? null,
+        created_at: p.created_at ?? null
       })),
       _rawModifiers: Array.isArray(peg.modifiers) ? peg.modifiers : [],
       modifiers: [],
@@ -1202,7 +1233,7 @@ async function fetchPegDataFor(
 
 // --------- Save
 async function saveCurrentPegData({ silent = false } = {}) {
-  
+
 const DRIVE_TYPE_MAP = {
   HDD: 1,
   SSD: 2
@@ -1233,7 +1264,9 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
   currentInterfaceKey,
   currentConditionKey
   );
-
+currentConfigId = resolvedConfigId;
+window.currentConfigId = resolvedConfigId;
+startPegLock(resolvedConfigId);
   /* =====================================================
      1) NORMALIZE POINT STATE
   ===================================================== */
@@ -1243,6 +1276,7 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
     p.peg_modifier = Number(p.peg_modifier) || 0;
     p.adjusted_peg_price = Number(p.adjusted_peg_price) || 0;
     p.notes = p.notes ?? '';
+    p.oos = Number(p.oos) === 1 ? 1 : 0;
   });
 
   /* =====================================================
@@ -1318,7 +1352,7 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
         price: p.price,
         qty: Number(p.qty) || 0,
         weight: p.weight,
-
+        oos: Number(p.oos) === 1 ? 1 : 0,
         notes: p.notes,
         peg_modifier: p.peg_modifier,
         adjusted_peg_price: p.adjusted_peg_price,
@@ -1351,13 +1385,13 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
       }))
     }
   };
-
+  
   /* =====================================================
      5) SAVE
   ===================================================== */
   try {
     savePegBtn.disabled = true;
-
+     markSaving(); 
     const res = await api.savePeg(payload);
 
     if (res.status === "success") {
@@ -1385,11 +1419,10 @@ state.basePegPrice = Number.isFinite(Number(state.basePegPrice))
       }
 
       
-      // after successful save
+      // after successful save   
 const historyRes = await api.loadHistory(currentCapacity);
 pegHistoryByCapacity[currentCapacity] = historyRes.history || [];
 renderPegHistoryTable(currentCapacity);
-
 //get MOST RECENT snapshot
 const latest = pegHistoryByCapacity[currentCapacity]?.[0];
 
@@ -1466,6 +1499,8 @@ renderPegHistoryTable(capacityKey);
 
 
 async function loadSelectedHistory(capacityKey, historyIndex) {
+  breadcrumbEditor();
+  cancelAutosave();
   showPegPointHistorySection();
   if (!capacityKey) return;
   isViewingHistory = true;
@@ -1506,6 +1541,8 @@ async function loadSelectedHistory(capacityKey, historyIndex) {
   conditionSelect.value = currentConditionKey;
 
   window.currentConfigId = Number(selected.config_id) || null;
+  currentConfigId = window.currentConfigId;
+  startPegLock(currentConfigId);
   window.originalInterface = selected.interface;
   window.originalCondition = selected.condition_type;
 
@@ -1552,6 +1589,7 @@ pegTableBody.addEventListener('input', (e) => {
   if (!points[idx]) return;
 
   let val = input.value;
+  
 if (field === 'price') {
   val = val === '' ? 0 : Number(val);
 }
@@ -1592,10 +1630,31 @@ pegTableBody.addEventListener('click', (e) => {
     arr.splice(idx, 1);
     refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey);
     hasUnsavedChanges = true;
+    startPegLock();
     markUnsaved();
     scheduleAutosave();
   }
 });
+
+//oos listener
+pegTableBody.addEventListener('change', (e) => {
+  if (!e.target.matches('input[data-field="oos"]')) return;
+
+  const row = e.target.closest('tr[data-index]');
+  if (!row || !currentCapacity) return;
+
+  const idx = Number(row.dataset.index);
+  const points = pegDataState[currentCapacity]?.points;
+  if (!points?.[idx]) return;
+
+  points[idx].oos = e.target.checked ? 1 : 0;
+
+  hasUnsavedChanges = true;
+  startPegLock();
+  markUnsaved();
+  scheduleAutosave();
+});
+
 
 modifierTableBody.addEventListener('input', (e) => {
   lastModifierEditType = 'buy';
@@ -1616,6 +1675,7 @@ modifierTableBody.addEventListener('input', (e) => {
 
 modifierTableBody.addEventListener('click', (e) => {
   hasUnsavedChanges = true;
+  startPegLock();
   markUnsaved();
   scheduleAutosave();
   lastModifierEditType = 'buy';
@@ -1627,6 +1687,7 @@ modifierTableBody.addEventListener('click', (e) => {
     arr.splice(idx, 1);
     refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey);
     hasUnsavedChanges = true;
+    startPegLock();
     markUnsaved();
     scheduleAutosave();
   }
@@ -1661,6 +1722,7 @@ salesTableBody.addEventListener('input', (e) => {
   updateSalesChart(currentCapacity);
   exitHistoryModeIfNeeded();
   hasUnsavedChanges = true;
+  startPegLock();
   markUnsaved();
   scheduleAutosave();
 
@@ -1681,6 +1743,7 @@ addRowBtn.addEventListener('click', () => {
     price: base,
     qty: 1,
     weight: 0.1,
+    oos: 0,
     history: generateSimpleHistory(base)
   });
 
@@ -1721,6 +1784,7 @@ addSaleModifierBtn?.addEventListener('click', () => {
 
 saleModifierTableBody?.addEventListener('input', (e) => {
   hasUnsavedChanges = true; 
+  startPegLock();
   markUnsaved();
   scheduleAutosave();
   if (!currentCapacity) return;
@@ -1759,6 +1823,7 @@ saleModifierTableBody?.addEventListener('click', (e) => {
   renderSaleModifierTable(currentCapacity);
   updateSummaryUI(currentCapacity);
   hasUnsavedChanges = true;
+  startPegLock();
   markUnsaved();
   scheduleAutosave();
 });
@@ -1788,9 +1853,11 @@ addNewCapacityBtn.addEventListener('click', async () => {
 
 // history view button
 document.getElementById('pegHistoryTableBody').addEventListener('click', async (e) => {
-updateSettingNames();
+applyLocks();
+
   // VIEW HISTORY
 if (e.target.dataset.action === 'viewHistory') {
+  breadcrumbEditor();
   avgPegCard.style.display = 'none';
   pegNameContainer.style.display = "flex";
   const historyId = Number(e.target.dataset.id);
@@ -1798,6 +1865,7 @@ if (e.target.dataset.action === 'viewHistory') {
   loadSelectedHistoryById(currentCapacity, historyId);
   loadPegPointHistory();
   settingNamesContainer.style.display ="block";   
+  updateSettingNames();
   return;
 }
 
@@ -1871,6 +1939,7 @@ pegHistoryByCapacity[currentCapacity] = res.history || [];
 
 marginInput.addEventListener('change', () => {
   hasUnsavedChanges = true;
+  startPegLock();
   markUnsaved();
   scheduleAutosave();
   if (!currentCapacity) return;
@@ -1978,7 +2047,8 @@ async function handleInterfaceOrConditionChange() {
     // EXISTING CONFIG
     isCreatingNewConfig = false;
     window.currentConfigId = map[key];
-
+    currentConfigId = map[key];
+startPegLock(currentConfigId);
     await fetchPegDataFor(
       currentCapacity,
       currentInterfaceKey,
@@ -1989,7 +2059,8 @@ async function handleInterfaceOrConditionChange() {
     // NEW CONFIG
     isCreatingNewConfig = true;
     window.currentConfigId = null;
-
+    currentConfigId = null;
+    stopPegLock();
     pegDataState[currentCapacity] = {
       points: [],
       modifiers: [],
@@ -2091,7 +2162,6 @@ driveTypeSelect.addEventListener("focus", () => {
     condKey: currentConditionKey
   };
 
-  console.log(" DriveType snapshot taken:", driveTypeSnapshot);
 });
 
 
@@ -2280,8 +2350,9 @@ interfaceSelect.addEventListener('change', async () => {
     interfaceSelect.value = currentInterfaceKey;
     return;
   }
-
+  
   hasUnsavedChanges = false;
+  cancelAutosave(); 
   clearChangeIndicator();
   await handleInterfaceOrConditionChange();
 });
@@ -2298,6 +2369,7 @@ conditionSelect.addEventListener('change', async () => {
   }
 
   hasUnsavedChanges = false;
+  cancelAutosave(); 
   clearChangeIndicator();
   await handleInterfaceOrConditionChange();
 });
@@ -2306,24 +2378,18 @@ conditionSelect.addEventListener('change', async () => {
 
 driveTypeSelect.addEventListener("change", async () => {
   if (!currentCapacity) return;
-
   const snapshot = driveTypeSnapshot;
   if (!snapshot) return;
-
   const newDriveType = driveTypeSelect.value;
-
+  
   const ok = await confirmIfUnsaved(
     "You have unsaved changes. Changing drive type will discard them. Continue?"
   );
 
   if (!ok) {
-    console.warn("↩ Restoring from snapshot:", snapshot);
-
     suppressSelectorEvents = true;
-
     driveTypeSelect.value = snapshot.driveType;
     updateInterfaceOptions();
-
     interfaceSelect.value = snapshot.iface;
     conditionSelect.value = snapshot.condition;
 
@@ -2331,6 +2397,7 @@ driveTypeSelect.addEventListener("change", async () => {
     currentConditionKey = snapshot.condKey;
 
     suppressSelectorEvents = false;
+    if (hasUnsavedChanges) scheduleAutosave();
     return;
   }
 
@@ -2343,7 +2410,7 @@ driveTypeSelect.addEventListener("change", async () => {
 
   currentInterfaceKey = interfaceSelect.value;
   currentConditionKey = conditionSelect.value;
-
+  cancelAutosave(); 
   hasUnsavedChanges = false;
   clearChangeIndicator();
   isViewingHistory = false;
@@ -2769,8 +2836,28 @@ loadPegPointHistory();
 const logoutBtn = document.getElementById("logoutBtn");
 
 if (logoutBtn) {
-  logoutBtn.addEventListener("click", logout);
+  logoutBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+
+    if (hasUnsavedChanges) {
+      const ok = await confirmIfUnsaved(
+        "You have unsaved changes. Logging out will discard them. Continue?",
+        "Unsaved Changes"
+      );
+      if (!ok) return;
+    } else {
+      const ok = await appConfirm(
+        "Are you sure you want to log out?",
+        "Confirm Logout"
+      );
+      if (!ok) return;
+    }
+
+    logout();
+  });
 }
+
+
 
 async function logout() {
   try {
@@ -2779,6 +2866,121 @@ async function logout() {
     window.location.href = "login.html";
   }
 }
+
+function goHome() {
+  breadcrumbHome();
+  // clear editor state
+  currentCapacity = null;
+  activePegPointIndex = null;
+  isViewingHistory = false;
+  hasUnsavedChanges = false;
+
+  clearChangeIndicator();
+
+  // UI reset
+  showChooseCapacityState();
+  pegDataHistoryCard.style.display = "none";
+  mainEditorLayout.style.display = "none";
+  avgPegCard.style.display = "none";
+  savePegBtn.style.display = "none";
+  settingNamesContainer.style.display = "none";
+  allCapacityChart.style.display = "block";
+  // charts safety
+  clearPegPointHistoryChart?.();
+
+  // sidebar (mobile)
+  const sidebar = document.querySelector(".sidebar");
+  if (sidebar && window.innerWidth <= 768) {
+    sidebar.classList.add("collapsed");
+  }
+}
+
+
+//home btn
+const homeBtn = document.getElementById("homeBtn");
+
+if (homeBtn) {
+  homeBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+
+    // Unsaved changes check
+    if (hasUnsavedChanges) {
+      const ok = await appConfirm(
+        "You have unsaved changes. Going home will discard them. Continue?",
+        "Unsaved Changes"
+      );
+      if (!ok) return;
+    }
+    cancelAutosave();
+    // release peg lock if any
+    if (typeof stopPegLock === "function") {
+      stopPegLock();
+    }
+
+    goHome();
+  });
+}
+
+
+//back btn function
+async function backToHistoryList() {
+  if (!currentCapacity) {
+    // fallback: if somehow no capacity, go home
+    goHome?.();
+    return;
+  }
+
+  // reset editor flags
+  isViewingHistory = false;
+  hasUnsavedChanges = false;
+  clearChangeIndicator();
+  // hide editor UI
+  mainEditorLayout.style.display = "none";
+  savePegBtn.style.display = "none";
+  avgPegCard.style.display = "flex";
+  pegNameContainer.style.display = "none";
+  settingNamesContainer.style.display = "none";
+
+  // show history list again
+  pegDataHistoryCard.style.display = "block";
+
+  // refresh history list (so user sees latest save)
+  try {
+    const res = await api.loadHistory(currentCapacity);
+    pegHistoryByCapacity[currentCapacity] = res.history || [];
+    renderPegHistoryTable(currentCapacity);
+  } catch (e) {
+    // ignore - UI still works even if refresh fails
+  }
+
+  // optional: reset peg point chart section
+  clearPegPointHistoryChart?.();
+  showPegPointHistorySection?.();
+}
+
+//back btn
+const backToHistoryBtn = document.getElementById("backToHistoryBtn");
+
+if (backToHistoryBtn) {
+  backToHistoryBtn.addEventListener("click", async (e) => {
+    e.preventDefault();
+
+    if (hasUnsavedChanges) {
+      const ok = await appConfirm(
+        "You have unsaved changes. Going back will discard them. Continue?",
+        "Unsaved Changes"
+      );
+      if (!ok) return;
+    }
+
+    // release lock so other users can edit
+    if (typeof stopPegLock === "function") stopPegLock();
+
+    backToHistoryList();
+  });
+}
+
+
 
 //qty toggle
 document.addEventListener("DOMContentLoaded", () => {
@@ -2815,6 +3017,8 @@ if (rangeSelect) {
   });
 }
 
+
+//Adjusted PEG Point Price History pegPointHistoryChart
 async function loadPegPointHistory() {
   
   const capacity  = currentCapacity;
@@ -2919,16 +3123,61 @@ clearPegSelectBtn.addEventListener('click', () => {
 
 
 //autosave
+function getAutosaveContext() {
+  return {
+    capacity: currentCapacity,
+    iface: currentInterfaceKey,
+    cond: currentConditionKey,
+    driveType: driveTypeSelect?.value,
+    configId: Number(window.currentConfigId || 0) || null,
+  };
+}
+
+function sameContext(a, b) {
+  if (!a || !b) return false;
+  return (
+    a.capacity === b.capacity &&
+    a.iface === b.iface &&
+    a.cond === b.cond &&
+    a.driveType === b.driveType &&
+    Number(a.configId || 0) === Number(b.configId || 0)
+  );
+}
+
+
+function cancelAutosave() {
+  autosaveToken++; // invalidate any pending autosave
+  if (autosaveTimer) {
+    clearTimeout(autosaveTimer);
+    autosaveTimer = null;
+  }
+  autosaveContext = null;
+}
+
 function scheduleAutosave() {
+  if (autosavePaused) return;
+
+  startPegLock();
   hasUnsavedChanges = true;
   markUnsaved();
 
-  clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(runAutosave, AUTOSAVE_DELAY);
+  const token = ++autosaveToken;          
+  autosaveContext = getAutosaveContext(); 
+
+  if (autosaveTimer) clearTimeout(autosaveTimer);
+  autosaveTimer = setTimeout(() => runAutosave(token, autosaveContext), AUTOSAVE_DELAY);
 }
 
-async function runAutosave() {
-  clearTimeout(autosaveTimer);
+
+
+async function runAutosave(token, ctx) {
+  if (token !== autosaveToken) return;
+
+  if (!sameContext(ctx, getAutosaveContext())) return;
+  if (!hasUnsavedChanges) return;
+  if (isViewingHistory) return;
+  if (isAutosaving) return;
+  if (autosaveTimer) clearTimeout(autosaveTimer);
   autosaveTimer = null;
 
   try {
@@ -2936,17 +3185,18 @@ async function runAutosave() {
     markSaving();
 
     await saveCurrentPegData({ silent: true });
-
-    hasUnsavedChanges = false;
-    markSaved(false);
+    if (sameContext(ctx, getAutosaveContext())) {
+      hasUnsavedChanges = false;
+      markSaved(false);
+    }
   } catch (err) {
-    markUnsaved();
+    if (sameContext(ctx, getAutosaveContext())) {
+      markUnsaved();
+    }
   } finally {
     isAutosaving = false;
   }
 }
-
-
 
 
 function markSaving() {
@@ -2985,7 +3235,7 @@ function markSaved(isManual = false) {
     if (el.textContent === label) {
       el.textContent = label; // keep timestamp visible
     }
-  }, 10000);
+  }, 30000);
 }
 
 function clearChangeIndicator() {
@@ -3023,6 +3273,7 @@ async function confirmIfUnsaved(
 
   if (!ok && hasUnsavedChanges) {
     scheduleAutosave();
+    console.log('resume autosave');
   }
 
   return ok;
@@ -3085,3 +3336,54 @@ function updateSettingNames() {
     if (el) el.textContent = text;
   });
 }
+
+window.addEventListener("peg:refreshRequested", async () => {
+  if (!currentCapacity) return;
+
+  await fetchPegDataFor(
+    currentCapacity,
+    currentInterfaceKey,
+    currentConditionKey,
+    driveTypeSelect.value
+  );
+
+  const h = await api.loadHistory(currentCapacity);
+  pegHistoryByCapacity[currentCapacity] = h.history || [];
+  renderPegHistoryTable(currentCapacity);
+
+  loadPegPointHistory();
+  refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey);
+});
+
+
+//directory breadcrumb
+document
+  .getElementById("pegBreadcrumb")
+  ?.addEventListener("click", async (e) => {
+
+    const btn = e.target.closest("button[data-action]");
+    if (!btn) return;
+
+    if (hasUnsavedChanges) {
+      const ok = await confirmIfUnsaved(
+        "You have unsaved changes. Continue?",
+        "Unsaved Changes"
+      );
+      if (!ok) return;
+    }
+
+    if (typeof stopPegLock === "function") stopPegLock();
+
+    if (btn.dataset.action === "goHome") {
+      goHome();
+      breadcrumbHome();
+    }
+
+    if (btn.dataset.action === "goHistory") {
+      backToHistoryList();
+      breadcrumbHistory();
+    }
+  cancelAutosave(); 
+  });
+
+

@@ -72,3 +72,24 @@ export function hexToRgba(hex, alpha) {
 }
 
 
+export function buildOOSSummaryEmail({ cap, iface, cond, driveType, points }) {
+  const oosPoints = (points || []).filter(p => p && (p.oos === 1 || p.oos === true));
+
+  if (!oosPoints.length) return null;
+
+  const subject = `OOS flagged: ${cap} | ${driveType} | ${iface} | ${cond}`;
+
+  const bodyLines = [
+    `OOS flagged in PEG Editor`,
+    ``,
+    `Capacity: ${cap || ''}`,
+    `Drive Type: ${driveType || ''}`,
+    `Interface: ${iface || ''}`,
+    `Condition: ${cond || ''}`,
+    ``,
+    `Peg Points:`,
+    ...oosPoints.map((p, i) => `- ${p.label || `(No label #${i + 1})`}`)
+  ];
+
+  return { subject, body: bodyLines.join('\n') };
+}
