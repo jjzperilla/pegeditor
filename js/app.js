@@ -1653,6 +1653,7 @@ pegTableBody.addEventListener('change', (e) => {
   startPegLock();
   markUnsaved();
   scheduleAutosave();
+  
 });
 
 
@@ -3154,49 +3155,83 @@ function cancelAutosave() {
   autosaveContext = null;
 }
 
-function scheduleAutosave() {
+
+function scheduleAutosave(reason = "") {
+  //console.log("[AUTOSAVE] schedule", { reason, autosavePaused, hasUnsavedChanges });
+
+  // If paused, don't pretend we scheduled it
   if (autosavePaused) return;
 
-  startPegLock();
   hasUnsavedChanges = true;
   markUnsaved();
 
-  const token = ++autosaveToken;          
-  autosaveContext = getAutosaveContext(); 
+  // Snapshot the exact PEG we intend to save
+  const snapshot = {
+    token: ++autosaveToken,
+    capacity: currentCapacity,
+    configId: Number(window.currentConfigId || 0),
+    iface: currentInterfaceKey,
+    cond: currentConditionKey,
+    drive: driveTypeSelect?.value
+  };
 
-  if (autosaveTimer) clearTimeout(autosaveTimer);
-  autosaveTimer = setTimeout(() => runAutosave(token, autosaveContext), AUTOSAVE_DELAY);
+  clearTimeout(autosaveTimer);
+
+  autosaveTimer = setTimeout(() => runAutosave(snapshot), AUTOSAVE_DELAY);
+
+  //console.log("[AUTOSAVE] timer set", { token: snapshot.token, delay: AUTOSAVE_DELAY, snapshot });
 }
 
+async function runAutosave(snapshot) {
+  //console.log("[AUTOSAVE] run fired", snapshot);
 
+  // Cancel if user moved to another PEG / config
+  const stillSame =
+    snapshot.token === autosaveToken &&
+    snapshot.capacity === currentCapacity &&
+    Number(window.currentConfigId || 0) === snapshot.configId &&
+    snapshot.iface === currentInterfaceKey &&
+    snapshot.cond === currentConditionKey &&
+    snapshot.drive === driveTypeSelect?.value;
 
-async function runAutosave(token, ctx) {
-  if (token !== autosaveToken) return;
+  if (!stillSame) {
+    //console.warn("[AUTOSAVE] aborted (context changed)", {
+      //now: {
+       // capacity: currentCapacity,
+        //configId: Number(window.currentConfigId || 0),
+        //iface: currentInterfaceKey,
+       // cond: currentConditionKey,
+      //  drive: driveTypeSelect?.value
+     // }
+    //});
+    return;
+  }
 
-  if (!sameContext(ctx, getAutosaveContext())) return;
-  if (!hasUnsavedChanges) return;
-  if (isViewingHistory) return;
-  if (isAutosaving) return;
-  if (autosaveTimer) clearTimeout(autosaveTimer);
+  clearTimeout(autosaveTimer);
   autosaveTimer = null;
+
+  if (autosavePaused) {
+    //console.warn("[AUTOSAVE] aborted (paused)");
+    return;
+  }
 
   try {
     isAutosaving = true;
     markSaving();
 
     await saveCurrentPegData({ silent: true });
-    if (sameContext(ctx, getAutosaveContext())) {
-      hasUnsavedChanges = false;
-      markSaved(false);
-    }
+
+    hasUnsavedChanges = false;
+    markSaved(false);
+    //console.log("[AUTOSAVE] saved OK");
   } catch (err) {
-    if (sameContext(ctx, getAutosaveContext())) {
-      markUnsaved();
-    }
+    //console.error("[AUTOSAVE] save failed", err);
+    markUnsaved();
   } finally {
     isAutosaving = false;
   }
 }
+
 
 
 function markSaving() {
