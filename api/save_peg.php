@@ -15,8 +15,6 @@ requireAuth();
 
 require __DIR__ . '/db.php';
 
-// Mailer wrapper (your file)
-require_once __DIR__ . '/oos_mailer.php';
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
@@ -321,6 +319,34 @@ try {
       $p['id'] = $pointId;
     }
 
+    $oldOos = 0;
+$oldNotified = null;
+
+if (isset($oldMap[$pointId])) {
+  $oldOos = (int)($oldMap[$pointId]['oos'] ?? 0);
+  $oldNotified = $oldMap[$pointId]['notified_at'] ?? null;
+}
+
+// ✅ NEW OOS only: transition 0 -> 1
+if ($oldOos === 0 && $oos === 1) {
+  $newlyOOS[] = ['id' => $pointId, 'label' => $label];
+}
+
+// ✅ If user UNCHECKS, remove unsent queued item for today
+if ($oos === 0) {
+  try {
+    $delQ = $db->prepare("
+      DELETE FROM oos_email_queue
+      WHERE config_id = ?
+        AND peg_point_id = ?
+        AND queue_day = ?
+        AND sent_at IS NULL
+    ");
+    $delQ->bind_param("iis", $config_id, $pointId, $pegDateEST);
+    $delQ->execute();
+  } catch (Throwable $ignored) {}
+}
+
     // History rows
     $upsertHist->bind_param("isdis", $pointId, $pegDateEST, $price, $qty, $pegDateTimeEST);
     $upsertHist->execute();
@@ -432,88 +458,37 @@ try {
   $db->commit();
 
   /* ===============================
-     14) OOS EMAIL (AFTER COMMIT)
+     14) OOS QUEUE (AFTER COMMIT)
+     - Do NOT send email here
+     - Just enqueue today's OOS points (EST day)
   =============================== */
   $newOosCount = count($newlyOOS);
   $debugOosItems = array_slice($newlyOOS, 0, 10);
 
+  $queuedCount = 0;
+
   if ($newOosCount > 0) {
-    $oosToEmail = "jperilla@servertechsolutions.com";
-    
-      $oosCcEmails = [
-    'jperilla@servertechsolutions.com',
-    'paulb@servertechsolutions.com'
-];  
-      
-    // Drive type label
-    $driveTypeLabel = (string)$driveTypeId;
-    try {
-      $dtStmt = $db->prepare("SELECT label FROM drive_types WHERE id=? LIMIT 1");
-      $dtStmt->bind_param("i", $driveTypeId);
-      $dtStmt->execute();
-      $dtRow = $dtStmt->get_result()->fetch_assoc();
-      if (!empty($dtRow['label'])) $driveTypeLabel = $dtRow['label'];
-    } catch (Throwable $ignored) {}
+    $qIns = $db->prepare("
+      INSERT INTO oos_email_queue (queue_day, config_id, peg_point_id, noted_at)
+      VALUES (?, ?, ?, NOW())
+      ON DUPLICATE KEY UPDATE noted_at = noted_at
+    ");
 
-    $lines = [];
     foreach ($newlyOOS as $x) {
-      $lines[] = "- " . (($x['label'] ?? '') !== '' ? $x['label'] : ("PEG Point #" . (int)$x['id']));
+      $pid = (int)($x['id'] ?? 0);
+      if ($pid <= 0) continue;
+
+      $qIns->bind_param("sii", $pegDateEST, $config_id, $pid);
+      $qIns->execute();
+
+      // affected_rows: 1=insert, 2=duplicate update, 0=no-op depending on server settings
+      if ($qIns->affected_rows === 1) $queuedCount++;
     }
 
-    $subject = "OOS PEG Points: {$pegName} - {$capacity} ({$driveTypeLabel} / {$interface} / {$condition})";
-
-  $eol = "\r\n";
-
-$body = implode($eol, [
-    "OOS items were marked on save.",
-    "<br>",
-    "Peg Name: {$pegName}",
-    "<br>",
-    "Capacity: {$capacity}",
-    "<br>",
-    "Drive Type: {$driveTypeLabel}",
-    "<br>",
-    "Interface: {$interface}",
-    "<br>",
-    "Condition: {$condition}",
-    "<br>",
-    "Peg Points:",
-    implode($eol, $lines),
-    "<br>",
-    "Saved at (EST): {$pegDateTimeEST}"
-]);
-
-    try {
-      $mailResult = sendOosSummaryEmail($oosToEmail,$subject,$body,$oosCcEmails);
-
-      if (!empty($mailResult['success'])) {
-        $emailSent = true;
-
-        // mark notified_at only if email sent
-        $ids = array_map(fn($x) => (int)$x['id'], $newlyOOS);
-        $ids = array_values(array_unique(array_filter($ids)));
-
-        if (count($ids) > 0) {
-          $placeholders = implode(",", array_fill(0, count($ids), "?"));
-          $types = str_repeat("i", count($ids));
-
-          $sql = "
-            UPDATE peg_points
-            SET oos_notified_at = NOW()
-            WHERE config_id=?
-              AND id IN ($placeholders)
-          ";
-
-          $mark = $db->prepare($sql);
-          $mark->bind_param("i".$types, $config_id, ...$ids);
-          $mark->execute();
-        }
-      } else {
-        $emailError = $mailResult['error'] ?? 'Unknown mailer error';
-      }
-    } catch (Throwable $e2) {
-      $emailError = $e2->getMessage();
-    }
+    // Optional: mark notified_at here IF you want "send-once forever" behavior
+    // BUT if you want "daily digest", DON'T set oos_notified_at here.
+    //
+    // If you still want send-once-ever, move your oos_notified_at update here.
   }
 
   echo json_encode([
@@ -521,11 +496,10 @@ $body = implode($eol, [
     'config_id' => $config_id,
     'saved_at'  => $pegDateTimeEST,
 
-    'new_oos_count'       => $newOosCount,
-    'oos_email_sent'      => $emailSent,
-    'oos_email_error'     => $emailError,
+    'new_oos_count'   => $newOosCount,
+    'queued_oos_count'=> $queuedCount,
 
-    'debug_oos_items'     => $debugOosItems,
+    'debug_oos_items' => $debugOosItems,
   ]);
   exit;
 

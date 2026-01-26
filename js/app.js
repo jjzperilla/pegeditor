@@ -52,7 +52,12 @@ function forceLogout() {
 
 resetIdleTimer();
 
+
+
+
 import { setPegSheetInstance } from './tableEditor.js';
+import { getUrlConfigId, setUrlConfigId } from './helpers/configURL.js';
+import {initAutosave, scheduleAutosave, cancelAutosave, confirmIfUnsaved, pauseAutosave, resumeAutosave, clearChangeIndicator, markUnsaved, markSaved, markSaving, exitHistoryModeIfNeeded, resumeAutosaveAfterUnloadCancel } from './helpers/autoSave.js';
 import { breadcrumbEditor, breadcrumbHome, breadcrumbHistory } from './helpers/format.js';
 import { isValidPegRow, showPegHistoryLoading, updatePegRowAdjustedUI, hexToRgba, buildOOSSummaryEmail } from './helpers/helpers.js';
 import { refreshChart, highlightSelectedPegPoint, createPegChart, createSalesChart, createPegHistoryChart, buildPegPointDatasets, renderPegPointHistoryChart, clearPegPointHistoryChart} from './charts.js';
@@ -73,65 +78,12 @@ import {
   
 } from './ui/charts/pegCharts.controller.js';
 import { setPegChartsContext } from './ui/charts/pegCharts.controller.js';
+import { initConfirmModal, initAlertModal } from "./ui/modals.js";
 
+const { appConfirm } = initConfirmModal();
+const { appAlert } = initAlertModal();
 const api = window.api;
 
- const appConfirmModal = document.getElementById('appConfirmModal');
-const appConfirmTitle = document.getElementById('appConfirmTitle');
-const appConfirmMessage = document.getElementById('appConfirmMessage');
-const appConfirmOk = document.getElementById('appConfirmOk');
-const appConfirmCancel = document.getElementById('appConfirmCancel');
-const saleModifierTableBody =document.getElementById('saleModifierTableBody');
-let confirmResolver = null;
-let pegPointHistoryMetric = "base";
-
-function appConfirm(message, title = 'Confirm') {
-  appConfirmTitle.textContent = title;
-  appConfirmMessage.textContent = message;
-  appConfirmModal.classList.remove('hidden');
-
-  return new Promise((resolve) => {
-    confirmResolver = resolve;
-  });
-}
-
-function closeConfirm(result) {
-  appConfirmModal.classList.add('hidden');
-  if (confirmResolver) {
-    confirmResolver(result);
-    confirmResolver = null;
-  }
-}
-
-appConfirmOk.addEventListener('click', () => closeConfirm(true));
-appConfirmCancel.addEventListener('click', () => closeConfirm(false));
-
-appConfirmModal.addEventListener('click', (e) => {
-  if (e.target === appConfirmModal) closeConfirm(false);
-});
-
-
-//modal alert
-const appAlertModal = document.getElementById('appAlertModal');
-const appAlertTitle = document.getElementById('appAlertTitle');
-const appAlertMessage = document.getElementById('appAlertMessage');
-const appAlertOk = document.getElementById('appAlertOk');
-
-function appAlert(message, title = 'Notice') {
-  appAlertTitle.textContent = title;
-  appAlertMessage.textContent = message;
-  appAlertModal.classList.remove('hidden');
-}
-
-function closeAppAlert() {
-  appAlertModal.classList.add('hidden');
-}
-appAlertOk.addEventListener('click', closeAppAlert);
-
-// click outside
-appAlertModal.addEventListener('click', (e) => {
-  if (e.target === appAlertModal) closeAppAlert();
-});
 
 
 // --------- Simple helpers (kept inside app.js for simplicity) ----------
@@ -346,12 +298,7 @@ let idlePaused = false;
 let suppressSelectorEvents = false;
 let isRestoringSelectors = false;
 
-let autosavePaused = false;
-let autosaveTimer = null;
-const AUTOSAVE_DELAY = 10000; 
-let autosaveToken = 0; 
-let isAutosaving = false;
-let autosaveContext = null; 
+
 
 const INTERFACES_BY_TYPE = {
   HDD: ['sata', 'sas'],
@@ -368,6 +315,74 @@ const emailDraft = buildOOSSummaryEmail({
   driveType: driveTypeSelect?.value,
   points: state?.points || []
 });
+//---------------------
+
+function enterEditorMode() {
+  // show main area
+  showChartsState();
+  showEditor();
+
+  // show editor sections
+  pegNameContainer.style.display = "flex";
+  mainEditorLayout.style.display = "grid";
+  pegDataHistoryCard.style.display = "none";
+  avgPegCard.style.display = "none";
+  savePegBtn.style.display = "inline-block";
+  allCapacityChart.style.display = "none";
+  
+  showPegPointHistorySection();
+
+  // show setting badges/header
+  settingNamesContainer.style.display = "block";
+  updateSettingNames();
+}
+
+async function openPegByConfigId(configId) {
+  try {
+    const res = await fetch(`api/get_config_by_id.php?id=${configId}`);
+    const data = await res.json();
+
+    if (data.status !== "ok") {
+      appAlert("PEG config not found");
+      return;
+    }
+
+    // URL should stay with config_id
+    const url = new URL(window.location.href);
+    url.searchParams.set("config_id", String(configId));
+    history.replaceState({ config_id: configId }, "", url.toString());
+
+    currentConfigId = configId;
+    window.currentConfigId = configId;
+
+    currentCapacity = data.capacity;
+    currentInterfaceKey = data.interface;
+    currentConditionKey = data.condition;
+
+    driveTypeSelect.value = Number(data.drive_type_id) === 1 ? "HDD" : "SSD";
+
+    updateInterfaceOptions();
+    interfaceSelect.value = currentInterfaceKey;
+    conditionSelect.value = currentConditionKey;
+    showPegPointHistorySection();
+  breadcrumbEditor();
+    enterEditorMode();
+    loadPegPointHistory();
+    // load full peg data
+    await fetchPegDataFor(
+      currentCapacity,
+      currentInterfaceKey,
+      currentConditionKey,
+      driveTypeSelect.value
+    );
+
+    // lock
+    startPegLock(configId);
+
+  } catch (err) {
+    console.error("Failed to open config", err);
+  }
+}
 
 
 function setActivePegPointIndex(idx) {
@@ -554,6 +569,7 @@ btn.addEventListener('click', async () => {
     "You have unsaved changes. Switching capacity will discard them. Continue?"
   );
   if (!ok) return;
+  setUrlConfigId(null);
   breadcrumbHistory();
   cancelAutosave();
   stopPegLock();
@@ -767,18 +783,10 @@ document.addEventListener('click', (e) => {
   updateSummary(currentCapacity);
 });
 
-document.addEventListener('input', (e) => {
-  if (!e.target.matches('[data-field="label"], [data-field="channel"],[data-field="url"],[data-field="notes"],[data-field="qty"]')) return;
-  exitHistoryModeIfNeeded();
-  markUnsaved();
-  scheduleAutosave();
-  
-});
-                          
 
 // peg modifier input / price / weight input
 document.addEventListener('input', (e) => {
-  if (!e.target.matches('[data-field="price"], [data-field="peg_modifier"], [data-field="weight"]')) return;
+  if (!e.target.matches('[data-field="price"], [data-field="peg_modifier"], [data-field="weight"],[data-field="label"], [data-field="channel"],[data-field="url"],[data-field="notes"],[data-field="qty"]')) return;
 
   // always resolve index from the closest row that HAS data-index
   const row = e.target.closest('tr[data-index]');
@@ -1462,7 +1470,7 @@ async function fetchAndSelectPeg(capacityKey) {
   updateAvgPegCardTitle(capacityKey);
     hideEditorOnMobile();
     showChartsState();
-  document.querySelectorAll('.capacity-btn').forEach(b => b.classList.remove('active'));
+document.querySelectorAll('.capacity-btn').forEach(b => b.classList.remove('active'));
 
   const btn = document.getElementById(`cap-btn-${capacityKey}`);
   if (btn) btn.classList.add('active');
@@ -1542,6 +1550,7 @@ async function loadSelectedHistory(capacityKey, historyIndex) {
 
   window.currentConfigId = Number(selected.config_id) || null;
   currentConfigId = window.currentConfigId;
+  setUrlConfigId(window.currentConfigId);
   startPegLock(currentConfigId);
   window.originalInterface = selected.interface;
   window.originalCondition = selected.condition_type;
@@ -2136,6 +2145,24 @@ initPrevSelectors();
   setActivePegPointIndex,
   api
 });
+  
+  initAutosave({
+  getContext: () => ({
+    capacity: currentCapacity,
+    iface: currentInterfaceKey,
+    cond: currentConditionKey,
+    drive: driveTypeSelect?.value,
+    configId: Number(window.currentConfigId || 0) || null
+  }),
+  getHasUnsaved: () => hasUnsavedChanges,
+  setHasUnsaved: (v) => { hasUnsavedChanges = v; },
+
+  getIsViewingHistory: () => isViewingHistory,
+  setIsViewingHistory: (v) => { isViewingHistory = v; },
+
+  saveCurrentPegData,
+  appConfirm
+});
 
 
   await Promise.all(
@@ -2150,6 +2177,15 @@ initPrevSelectors();
   );
 
   renderCapacityButtons();
+  
+  
+    // auto-open config_id if present in URL
+  const cid = getUrlConfigId() || Number(window.initialConfigId || 0);
+  if (cid > 0) {
+    await openPegByConfigId(cid);
+    return; // stop "choose capacity" UI from overriding
+  }
+
 }
 
 let driveTypeSnapshot = null;
@@ -2870,6 +2906,7 @@ async function logout() {
 
 function goHome() {
   breadcrumbHome();
+  setUrlConfigId(null);
   // clear editor state
   currentCapacity = null;
   activePegPointIndex = null;
@@ -2925,6 +2962,7 @@ if (homeBtn) {
 
 //back btn function
 async function backToHistoryList() {
+  setUrlConfigId(null);
   if (!currentCapacity) {
     // fallback: if somehow no capacity, go home
     goHome?.();
@@ -3109,7 +3147,6 @@ function updatePegPointAveragesUI(averages) {
 
 //show peg point history
 
-
 function clearActivePegSelection() {
   activePegPointIndex = null;
   document
@@ -3123,196 +3160,7 @@ clearPegSelectBtn.addEventListener('click', () => {
 });
 
 
-//autosave
-function getAutosaveContext() {
-  return {
-    capacity: currentCapacity,
-    iface: currentInterfaceKey,
-    cond: currentConditionKey,
-    driveType: driveTypeSelect?.value,
-    configId: Number(window.currentConfigId || 0) || null,
-  };
-}
 
-function sameContext(a, b) {
-  if (!a || !b) return false;
-  return (
-    a.capacity === b.capacity &&
-    a.iface === b.iface &&
-    a.cond === b.cond &&
-    a.driveType === b.driveType &&
-    Number(a.configId || 0) === Number(b.configId || 0)
-  );
-}
-
-
-function cancelAutosave() {
-  autosaveToken++; // invalidate any pending autosave
-  if (autosaveTimer) {
-    clearTimeout(autosaveTimer);
-    autosaveTimer = null;
-  }
-  autosaveContext = null;
-}
-
-
-function scheduleAutosave(reason = "") {
-  //console.log("[AUTOSAVE] schedule", { reason, autosavePaused, hasUnsavedChanges });
-
-  // If paused, don't pretend we scheduled it
-  if (autosavePaused) return;
-
-  hasUnsavedChanges = true;
-  markUnsaved();
-
-  // Snapshot the exact PEG we intend to save
-  const snapshot = {
-    token: ++autosaveToken,
-    capacity: currentCapacity,
-    configId: Number(window.currentConfigId || 0),
-    iface: currentInterfaceKey,
-    cond: currentConditionKey,
-    drive: driveTypeSelect?.value
-  };
-
-  clearTimeout(autosaveTimer);
-
-  autosaveTimer = setTimeout(() => runAutosave(snapshot), AUTOSAVE_DELAY);
-
-  //console.log("[AUTOSAVE] timer set", { token: snapshot.token, delay: AUTOSAVE_DELAY, snapshot });
-}
-
-async function runAutosave(snapshot) {
-  //console.log("[AUTOSAVE] run fired", snapshot);
-
-  // Cancel if user moved to another PEG / config
-  const stillSame =
-    snapshot.token === autosaveToken &&
-    snapshot.capacity === currentCapacity &&
-    Number(window.currentConfigId || 0) === snapshot.configId &&
-    snapshot.iface === currentInterfaceKey &&
-    snapshot.cond === currentConditionKey &&
-    snapshot.drive === driveTypeSelect?.value;
-
-  if (!stillSame) {
-    //console.warn("[AUTOSAVE] aborted (context changed)", {
-      //now: {
-       // capacity: currentCapacity,
-        //configId: Number(window.currentConfigId || 0),
-        //iface: currentInterfaceKey,
-       // cond: currentConditionKey,
-      //  drive: driveTypeSelect?.value
-     // }
-    //});
-    return;
-  }
-
-  clearTimeout(autosaveTimer);
-  autosaveTimer = null;
-
-  if (autosavePaused) {
-    //console.warn("[AUTOSAVE] aborted (paused)");
-    return;
-  }
-
-  try {
-    isAutosaving = true;
-    markSaving();
-
-    await saveCurrentPegData({ silent: true });
-
-    hasUnsavedChanges = false;
-    markSaved(false);
-    //console.log("[AUTOSAVE] saved OK");
-  } catch (err) {
-    //console.error("[AUTOSAVE] save failed", err);
-    markUnsaved();
-  } finally {
-    isAutosaving = false;
-  }
-}
-
-
-
-function markSaving() {
-  const el = document.getElementById("changeIndicator");
-  if (!el) return;
-
-  el.textContent = "Saving…";
-  el.classList.remove("unsaved", "saved");
-}
-
-function markUnsaved() {
-  const el = document.getElementById("changeIndicator");
-  if (!el) return;
-
-  el.textContent = "Unsaved changes";
-  el.classList.add("unsaved");
-  el.classList.remove("saved");
-}
-
-function markSaved(isManual = false) {
-  const el = document.getElementById("changeIndicator");
-  if (!el) return;
-
-  lastSavedAt = new Date();
-
-  const label = isManual
-    ? `Saved at ${formatSaveTime(lastSavedAt)}`
-    : `Saved at ${formatSaveTime(lastSavedAt)}`;
-
-  el.textContent = label;
-  el.classList.add("saved");
-  el.classList.remove("unsaved");
-
-  // optional fade after a few seconds
-  setTimeout(() => {
-    if (el.textContent === label) {
-      el.textContent = label; // keep timestamp visible
-    }
-  }, 30000);
-}
-
-function clearChangeIndicator() {
-  const el = document.getElementById("changeIndicator");
-  if (!el) return;
-
-  el.textContent = "";
-  el.classList.remove("unsaved", "saved");
-}
-function exitHistoryModeIfNeeded() {
-  if (isViewingHistory) {
-    isViewingHistory = false;
-    clearChangeIndicator();
-  }
-}
-
-async function confirmIfUnsaved(
-  message = "You have unsaved changes. Continue without saving?"
-) {
-  if (!hasUnsavedChanges) {
-    return true;
-  }
-
-  if (isConfirmingUnsaved) {
-    return false;
-  }
-
-  isConfirmingUnsaved = true;
-  pauseAutosave();
-  const ok = await appConfirm(message, "Unsaved Changes");
-
-
-  isConfirmingUnsaved = false;
-  resumeAutosave();
-
-  if (!ok && hasUnsavedChanges) {
-    scheduleAutosave();
-    console.log('resume autosave');
-  }
-
-  return ok;
-}
 
 
 
@@ -3328,32 +3176,6 @@ window.addEventListener("beforeunload", (e) => {
 });
 
 
-function resumeAutosaveAfterUnloadCancel() {
-  setTimeout(() => {
-    // If user is still on page, unload was canceled
-    if (!hasUnsavedChanges) return;
-    if (isAutosaving) return;
-    if (isConfirmingUnsaved) return;
-    if (isViewingHistory) return;
-
-    resumeAutosave();
-    scheduleAutosave();
-  }, 500);
-}
-
-//pause autosave
-function pauseAutosave() {
-  autosavePaused = true;
-
-  if (autosaveTimer) {
-    clearTimeout(autosaveTimer);
-    autosaveTimer = null;
-  }
-}
-
-function resumeAutosave() {
-  autosavePaused = false;
-}
 
 function updateSettingNames() {
   const root = document.getElementById("settingNames");
@@ -3410,6 +3232,7 @@ document
     if (typeof stopPegLock === "function") stopPegLock();
 
     if (btn.dataset.action === "goHome") {
+      document.querySelectorAll('.capacity-btn').forEach(b => b.classList.remove('active'));
       goHome();
       breadcrumbHome();
     }
