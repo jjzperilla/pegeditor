@@ -12,197 +12,189 @@ require_once __DIR__ . '/oos_mailer.php';
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
-$est = new DateTime('now', new DateTimeZone('America/New_York'));
-$queueDay = $est->format('Y-m-d');
-$nowEST   = $est->format('Y-m-d H:i:s');
+// -------------------- helpers -------------------
+
+// -------------------- time --------------------
+$est     = new DateTime('now', new DateTimeZone('America/New_York'));
+$today   = $est->format('Y-m-d');
+$nowEST  = $est->format('Y-m-d H:i:s');
 
 // recipients
 $to = "jperilla@servertechsolutions.com";
-$cc = ["jperilla@servertechsolutions.com"];
+$cc = ["jperilla@servertechsolutions.com", "jj.perilla12@gmail.com"];
 
-// Base URL for link
+// Link base
 $baseUrl = "http://167.71.244.63/index.php?config_id=";
 
+// dry run via web: ?dry_run=1
 $dryRun = isset($_GET['dry_run']) ? (int)$_GET['dry_run'] : 0;
 
+// NOTE: if you want CLI dry_run=1 support, call:
+// CRON_TOKEN=... php send_oos_digest_now.php dry_run=1
+// and parse $argv here. (optional)
+
 try {
-  // 1) Get all unsent queued items for today
+  /**
+   * 1) Get ALL OOS peg points (current truth), including URL
+   */
   $q = $db->prepare("
-    SELECT q.config_id, q.peg_point_id
-    FROM oos_email_queue q
-    WHERE q.queue_day = ?
-      AND q.sent_at IS NULL
-    ORDER BY q.config_id ASC, q.peg_point_id ASC
+    SELECT
+      p.config_id,
+      p.id    AS peg_point_id,
+      p.label AS peg_point_label,
+      p.url   AS peg_point_url,
+
+      c.peg_name,
+      c.capacity,
+      c.interface,
+      c.condition_type,
+      COALESCE(dt.label, c.drive_type_id) AS drive_type_label
+    FROM peg_points p
+    JOIN peg_configs c ON c.id = p.config_id
+    LEFT JOIN drive_types dt ON dt.id = c.drive_type_id
+    WHERE p.oos = 1
+    ORDER BY p.config_id ASC, p.id ASC
   ");
-  $q->bind_param("s", $queueDay);
   $q->execute();
   $r = $q->get_result();
 
-  $byConfig = [];
+  $byConfig = []; // config_id => ['cfg'=>..., 'points'=>[ ['label'=>..,'url'=>..] ]]
   while ($row = $r->fetch_assoc()) {
     $cid = (int)$row['config_id'];
-    $pid = (int)$row['peg_point_id'];
-    if (!isset($byConfig[$cid])) $byConfig[$cid] = [];
-    $byConfig[$cid][] = $pid;
+
+    if (!isset($byConfig[$cid])) {
+      $byConfig[$cid] = [
+        'cfg' => [
+          'peg_name'   => (string)($row['peg_name'] ?? ''),
+          'capacity'   => (string)($row['capacity'] ?? ''),
+          'drive_type' => (string)($row['drive_type_label'] ?? ''),
+          'interface'  => (string)($row['interface'] ?? ''),
+          'condition'  => (string)($row['condition_type'] ?? ''),
+        ],
+        'points' => []
+      ];
+    }
+
+    $label = trim((string)($row['peg_point_label'] ?? ''));
+    if ($label === '') $label = "PEG Point #" . (int)$row['peg_point_id'];
+
+    $url = ($row['peg_point_url'] ?? '');
+    $byConfig[$cid]['points'][] = [
+      'label' => $label,
+      'url'   => $url
+    ];
   }
 
   if (!$byConfig) {
     echo json_encode([
       "status" => "ok",
-      "message" => "No queued OOS items for today (EST) to send.",
-      "queue_day" => $queueDay
+      "message" => "No OOS peg points found (nothing to send).",
+      "date_est" => $today
     ]);
     exit;
   }
 
-  // 2) Build ONE email body with sections
-  $sections = [];
-  $allConfigIds = array_keys($byConfig);
+  /**
+   * 2) Latest saved_at per config for sorting (newest on top)
+   */
+  $latestStmt = $db->prepare("
+    SELECT MAX(saved_at) AS latest_saved_at
+    FROM peg_history
+    WHERE config_id = ?
+  ");
 
-  foreach ($byConfig as $configId => $pointIds) {
-    // Load config header info
-    $cfg = $db->prepare("
-      SELECT c.id, c.capacity, c.interface, c.condition_type, c.peg_name, c.drive_type_id,
-             dt.label AS drive_type_label
-      FROM peg_configs c
-      LEFT JOIN drive_types dt ON dt.id = c.drive_type_id
-      WHERE c.id = ?
-      LIMIT 1
-    ");
-    $cfg->bind_param("i", $configId);
-    $cfg->execute();
-    $cfgRow = $cfg->get_result()->fetch_assoc();
+  $sections = []; // each: ['saved_at' => 'Y-m-d H:i:s', 'text' => '...']
 
-    if (!$cfgRow) {
-      $sections[] = implode("\n", [
-        "OOS items were marked on save.",
-        "Peg Name: (unknown)",
-        "Capacity: (unknown)",
-        "Drive Type: (unknown)",
-        "Interface: (unknown)",
-        "Condition: (unknown)",
-        "Peg Points:",
-        "- (config not found: {$configId})",
-        "Saved at (EST): {$nowEST}",
-        "Link: {$baseUrl}{$configId}",
-        ""
-      ]);
-      continue;
+  foreach ($byConfig as $configId => $bundle) {
+    $cfg    = $bundle['cfg'];
+    $points = $bundle['points'];
+
+    // latest saved_at
+    $latestStmt->bind_param("i", $configId);
+    $latestStmt->execute();
+    $latestRow = $latestStmt->get_result()->fetch_assoc();
+    $latestSavedAt = (string)($latestRow['latest_saved_at'] ?? '');
+    if ($latestSavedAt === '') $latestSavedAt = $nowEST;
+
+    // Peg Config line
+    $pegName = trim($cfg['peg_name'] ?? '');
+    if ($pegName === '') $pegName = "(no name)";
+
+    $capacity  = $cfg['capacity']   ?? '';
+    $driveType = $cfg['drive_type'] ?? '';
+    $iface     = $cfg['interface']  ?? '';
+    $cond      = $cfg['condition']  ?? '';
+
+    // Peg Points Marked OOS lines
+    $pointLines = [];
+    foreach ($points as $p) {
+      $pLabel = $p['label'] ?? 'PEG Point';
+      $pUrl   = trim((string)($p['url'] ?? ''));
+      if ($pUrl === '') $pUrl = '(no url)';
+      $pointLines[] = "- {$pLabel}:  {$pUrl}";
     }
+    if (!$pointLines) $pointLines[] = "- (no points found)";
 
-    $pegName   = (string)($cfgRow['peg_name'] ?? '');
-    $capacity  = (string)($cfgRow['capacity'] ?? '');
-    $iface     = (string)($cfgRow['interface'] ?? '');
-    $cond      = (string)($cfgRow['condition_type'] ?? '');
-    $driveType = (string)($cfgRow['drive_type_label'] ?? ($cfgRow['drive_type_id'] ?? ''));
-
-    // Load point labels
-    $lines = [];
-    if (count($pointIds) > 0) {
-      $placeholders = implode(",", array_fill(0, count($pointIds), "?"));
-      $types = str_repeat("i", count($pointIds));
-
-      $sqlPts = "
-        SELECT id, label
-        FROM peg_points
-        WHERE config_id = ?
-          AND id IN ($placeholders)
-        ORDER BY id ASC
-      ";
-      $stmtPts = $db->prepare($sqlPts);
-
-      $bindTypes = "i" . $types;
-      $params = array_merge([$configId], $pointIds);
-      $stmtPts->bind_param($bindTypes, ...$params);
-
-      $stmtPts->execute();
-      $ptsRes = $stmtPts->get_result();
-
-      while ($p = $ptsRes->fetch_assoc()) {
-        $label = trim((string)($p['label'] ?? ''));
-        $lines[] = "- " . ($label !== "" ? $label : ("PEG Point #" . (int)$p['id']));
-      }
-    }
-
-    if (!$lines) $lines[] = "- (no points found)";
-
-    // Section body (plain text, exactly your format)
-    $sections[] = implode("\n", [
-      "OOS items were marked on save.",
-      "Peg Name: " . ($pegName !== "" ? $pegName : "(no name)"),
-      "Capacity: {$capacity}",
-      "Drive Type: {$driveType}",
-      "Interface: {$iface}",
-      "Condition: {$cond}",
-      "Peg Points:",
-      implode("\n", $lines),
-      "Saved at (EST): {$nowEST}",
+    $sectionText = implode("\n", [
+      "<br>",
+      "Peg Config: {$pegName} / {$capacity} / {$driveType} / {$iface} / {$cond}",
+      "Peg Points Marked OOS: ",
+      implode("\n", $pointLines),
+      "Saved at (EST): {$latestSavedAt}",
       "Link: {$baseUrl}{$configId}",
-      ""
+      "" // blank line after each config
     ]);
+
+    $sections[] = [
+      'saved_at' => $latestSavedAt,
+      'text'     => $sectionText
+    ];
   }
 
-  $subject = "OOS Notification Report: {$queueDay}";
-  $bodyText = implode("\n", $sections);     // one combined body
-  $bodyHtml = nl2br($bodyText);             // convert new lines to <br>
+  // Sort newest first
+  usort($sections, function($a, $b) {
+    return strcmp($b['saved_at'], $a['saved_at']);
+  });
+
+  /**
+   * 3) Build final email
+   */
+  $subject  = "OOS Summary List: {$today} (EST)";
+  $bodyText = "OOS Summary List:\n" . implode("", array_column($sections, 'text'));
+  $bodyHtml = nl2br($bodyText);
 
   if ($dryRun) {
     echo json_encode([
       "status" => "ok",
-      "queue_day" => $queueDay,
       "dry_run" => true,
-      "configs" => count($allConfigIds),
+      "date_est" => $today,
+      "configs" => count($sections),
       "subject" => $subject,
       "body_preview" => $bodyText
     ]);
     exit;
   }
 
-  // 3) Send ONE email
   $resMail = sendOosSummaryEmail($to, $subject, $bodyHtml, $cc);
 
   if (empty($resMail["success"])) {
     $err = $resMail["error"] ?? "Unknown mailer error";
-
-    // store error on all pending rows
-    $updErr = $db->prepare("
-      UPDATE oos_email_queue
-      SET error = ?
-      WHERE queue_day = ?
-        AND sent_at IS NULL
-    ");
-    $updErr->bind_param("ss", $err, $queueDay);
-    $updErr->execute();
-
     echo json_encode([
-      "status" => "ok",
-      "queue_day" => $queueDay,
-      "sent" => [],
-      "failed" => [["error" => $err]]
+      "status" => "error",
+      "message" => "Email send failed",
+      "error" => $err
     ]);
     exit;
   }
 
-  // 4) Mark ALL queued rows (today) as sent
-  $ccStr = implode(",", $cc);
-  $upd = $db->prepare("
-    UPDATE oos_email_queue
-    SET sent_at = NOW(),
-        sent_to = ?,
-        sent_cc = ?,
-        sent_subject = ?,
-        error = NULL
-    WHERE queue_day = ?
-      AND sent_at IS NULL
-  ");
-  $upd->bind_param("ssss", $to, $ccStr, $subject, $queueDay);
-  $upd->execute();
-
   echo json_encode([
     "status" => "ok",
-    "queue_day" => $queueDay,
-    "sent" => [["configs" => count($allConfigIds)]],
-    "failed" => []
+    "date_est" => $today,
+    "sent" => [
+      "to" => $to,
+      "cc" => implode(", ", $cc),
+      "configs" => count($sections)
+    ]
   ]);
   exit;
 

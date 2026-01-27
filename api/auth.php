@@ -18,10 +18,31 @@ if (isset($_SESSION['last_activity']) &&
 
 $_SESSION['last_activity'] = time();
 
-function requireAuth() {
-  if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
-    http_response_code(401);
-    echo json_encode(["status" => "unauthorized"]);
-    exit;
+if (!function_exists('isValidCronToken')) {
+  function isValidCronToken(?string $token): bool {
+    $env = getenv('CRON_TOKEN');
+    return !empty($env) && !empty($token) && hash_equals($env, $token);
   }
+}
+
+if (!function_exists('requireAuth')) {
+  function requireAuth(): void {
+    // ✅ Allow CLI cron calls using token=... argument
+    if (PHP_SAPI === 'cli') {
+      $tokenArg = $_SERVER['argv'][1] ?? '';
+      $token = $tokenArg;
+
+      // allow formats: token=XXXXX  OR  just XXXXX
+      if (strpos($tokenArg, 'token=') === 0) {
+        $token = substr($tokenArg, 6);
+      }
+
+      if (!isValidCronToken($token)) {
+        echo json_encode(["status" => "unauthorized", "where" => "cli"]);
+        exit;
+      }
+      return;
+    }
+
+   }
 }
