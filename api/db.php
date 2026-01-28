@@ -1,8 +1,8 @@
 <?php
 $DB_HOST = 'localhost';
-$DB_USER = 'pegmatrix';
-$DB_PASS = 'ServerTech2025!';
-$DB_NAME = 'pegeditor';
+$DB_USER = 'root';
+$DB_PASS = '';
+$DB_NAME = 'peg_old_test';
 
 
 $db = new mysqli($DB_HOST, $DB_USER, $DB_PASS, $DB_NAME);

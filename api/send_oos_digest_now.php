@@ -10,9 +10,6 @@ requireAuth();
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/oos_mailer.php';
 
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
-
-// -------------------- helpers -------------------
 
 // -------------------- time --------------------
 $est     = new DateTime('now', new DateTimeZone('America/New_York'));
@@ -23,15 +20,8 @@ $nowEST  = $est->format('Y-m-d H:i:s');
 $to = "jperilla@servertechsolutions.com";
 $cc = ["jperilla@servertechsolutions.com", "jj.perilla12@gmail.com"];
 
-// Link base
-$baseUrl = "http://167.71.244.63/index.php?config_id=";
-
 // dry run via web: ?dry_run=1
 $dryRun = isset($_GET['dry_run']) ? (int)$_GET['dry_run'] : 0;
-
-// NOTE: if you want CLI dry_run=1 support, call:
-// CRON_TOKEN=... php send_oos_digest_now.php dry_run=1
-// and parse $argv here. (optional)
 
 try {
   /**
@@ -44,7 +34,6 @@ try {
       p.label AS peg_point_label,
       p.url   AS peg_point_url,
 
-      c.peg_name,
       c.capacity,
       c.interface,
       c.condition_type,
@@ -65,7 +54,6 @@ try {
     if (!isset($byConfig[$cid])) {
       $byConfig[$cid] = [
         'cfg' => [
-          'peg_name'   => (string)($row['peg_name'] ?? ''),
           'capacity'   => (string)($row['capacity'] ?? ''),
           'drive_type' => (string)($row['drive_type_label'] ?? ''),
           'interface'  => (string)($row['interface'] ?? ''),
@@ -78,7 +66,8 @@ try {
     $label = trim((string)($row['peg_point_label'] ?? ''));
     if ($label === '') $label = "PEG Point #" . (int)$row['peg_point_id'];
 
-    $url = ($row['peg_point_url'] ?? '');
+    $url = trim((string)($row['peg_point_url'] ?? ''));
+
     $byConfig[$cid]['points'][] = [
       'label' => $label,
       'url'   => $url
@@ -95,7 +84,7 @@ try {
   }
 
   /**
-   * 2) Latest saved_at per config for sorting (newest on top)
+   * 2) Latest saved_at per config for sorting only (NOT shown in email)
    */
   $latestStmt = $db->prepare("
     SELECT MAX(saved_at) AS latest_saved_at
@@ -109,40 +98,45 @@ try {
     $cfg    = $bundle['cfg'];
     $points = $bundle['points'];
 
-    // latest saved_at
+    // latest saved_at (only for sorting)
     $latestStmt->bind_param("i", $configId);
     $latestStmt->execute();
     $latestRow = $latestStmt->get_result()->fetch_assoc();
     $latestSavedAt = (string)($latestRow['latest_saved_at'] ?? '');
     if ($latestSavedAt === '') $latestSavedAt = $nowEST;
 
-    // Peg Config line
-    $pegName = trim($cfg['peg_name'] ?? '');
-    if ($pegName === '') $pegName = "(no name)";
+    $capacity  = strtoupper(trim((string)($cfg['capacity']   ?? '')));
+    $driveType = strtoupper(trim((string)($cfg['drive_type'] ?? '')));
+    $iface     = strtoupper(trim((string)($cfg['interface']  ?? '')));
+    $cond      = strtoupper(trim((string)($cfg['condition']  ?? '')));
 
-    $capacity  = $cfg['capacity']   ?? '';
-    $driveType = $cfg['drive_type'] ?? '';
-    $iface     = $cfg['interface']  ?? '';
-    $cond      = $cfg['condition']  ?? '';
-
-    // Peg Points Marked OOS lines
+    // Build point lines in Google/Gmail-friendly style
+    // - Point 1:
+    //   URL
     $pointLines = [];
     foreach ($points as $p) {
-      $pLabel = $p['label'] ?? 'PEG Point';
-      $pUrl   = trim((string)($p['url'] ?? ''));
-      if ($pUrl === '') $pUrl = '(no url)';
-      $pointLines[] = "- {$pLabel}:  {$pUrl}";
-    }
-    if (!$pointLines) $pointLines[] = "- (no points found)";
+      $pLabel = trim((string)($p['label'] ?? 'PEG Point'));
+      $pUrl = trim((string)($p['url'] ?? ''));
 
+if ($pUrl !== '') {
+  // With URL → show label + URL
+  $pointLines[] = "- {$pLabel}:\n  {$pUrl}";
+} else {
+  // No URL → show label only
+  $pointLines[] = "- {$pLabel}";
+}
+    }
+    if (!$pointLines) $pointLines[] = "";
+
+    // IMPORTANT: No Peg Config name; keep blank
     $sectionText = implode("\n", [
-      "<br>",
-      "Peg Config: {$pegName} / {$capacity} / {$driveType} / {$iface} / {$cond}",
-      "Peg Points Marked OOS: ",
-      implode("\n", $pointLines),
-      "Saved at (EST): {$latestSavedAt}",
-      "Link: {$baseUrl}{$configId}",
-      "" // blank line after each config
+      "PEG CONFIG:",
+      "Specs: {$capacity} / {$driveType} / {$iface} / {$cond}",
+      "",
+      "Peg Points Marked OOS:",
+      implode("\n\n", $pointLines),
+      "",
+      "<hr>",
     ]);
 
     $sections[] = [
@@ -151,17 +145,30 @@ try {
     ];
   }
 
-  // Sort newest first
+  // Sort newest first (still useful)
   usort($sections, function($a, $b) {
     return strcmp($b['saved_at'], $a['saved_at']);
   });
 
   /**
-   * 3) Build final email
+   * 3) Build final email (plain text style)
    */
-  $subject  = "OOS Summary List: {$today} (EST)";
-  $bodyText = "OOS Summary List:\n" . implode("", array_column($sections, 'text'));
-  $bodyHtml = nl2br($bodyText);
+  $subject = "OOS Summary Notification - Peg Points Marked Out of Stock: {$today} (EST)";
+
+  $bodyText = implode("\n", array_merge(
+    [
+  
+      "Please see below the Out-of-Stock (OOS) Summary for peg points recently marked as unavailable.",
+      "",
+      "<hr>",
+
+    ],
+    array_column($sections, 'text'),
+    [
+      "Please review the affected peg configurations and take any necessary action.",
+      ""
+    ]
+  ));
 
   if ($dryRun) {
     echo json_encode([
@@ -174,6 +181,9 @@ try {
     ]);
     exit;
   }
+
+  // Send as HTML but preserve plain-text formatting
+  $bodyHtml = nl2br($bodyText);
 
   $resMail = sendOosSummaryEmail($to, $subject, $bodyHtml, $cc);
 

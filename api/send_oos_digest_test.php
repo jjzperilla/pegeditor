@@ -5,7 +5,6 @@
 require __DIR__ . '/../api/db.php';
 require __DIR__ . '/../api/oos_mailer.php';
 
-mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
 // === SETTINGS ===
 $BASE_URL = 'http://167.71.244.63'; // your site base
@@ -101,7 +100,9 @@ function fetchPoints(mysqli $db, array $pointIds): array {
 }
 
 // Build ONE email body with sections per config_id
+// Build ONE email body with sections per config_id (plain text)
 $sections = [];
+
 foreach ($byConfig as $configId => $pointIds) {
   // config details
   $cfgStmt->bind_param("i", $configId);
@@ -109,52 +110,66 @@ foreach ($byConfig as $configId => $pointIds) {
   $cfg = $cfgStmt->get_result()->fetch_assoc();
   if (!$cfg) continue;
 
-  $pegName   = (string)($cfg['peg_name'] ?? '');
-  $capacity  = (string)($cfg['capacity'] ?? '');
-  $iface     = (string)($cfg['interface'] ?? '');
-  $cond      = (string)($cfg['condition_type'] ?? '');
-  $driveType = (string)($cfg['drive_type_label'] ?? $cfg['drive_type_id'] ?? '');
-
-  // last saved at
-  $savedStmt->bind_param("i", $configId);
-  $savedStmt->execute();
-  $savedRow = $savedStmt->get_result()->fetch_assoc();
-  $savedAt = (string)($savedRow['last_saved_at'] ?? '');
-  if ($savedAt === '') $savedAt = $queueDay . ' (unknown time)';
+  $capacity  = trim((string)($cfg['capacity'] ?? ''));
+  $iface     = trim((string)($cfg['interface'] ?? ''));
+  $cond      = trim((string)($cfg['condition_type'] ?? ''));
+  $driveType = trim((string)($cfg['drive_type_label'] ?? $cfg['drive_type_id'] ?? ''));
 
   // points
   $pointMap = fetchPoints($db, $pointIds);
   $lines = [];
+
   foreach ($pointIds as $pid) {
-    $label = $pointMap[$pid]['label'] ?? ("PEG Point #{$pid}");
-    $notes = trim($pointMap[$pid]['notes'] ?? '');
-    // Format: "- Point 1 - Lazy boy" (label + optional notes)
-    $line = "- " . $label;
-    if ($notes !== '') $line .= " - " . $notes;
-    $lines[] = $line;
+    $label = trim((string)($pointMap[$pid]['label'] ?? ''));
+    $notes = trim((string)($pointMap[$pid]['notes'] ?? ''));
+
+    if ($label === '') $label = "Point {$pid}";
+
+    $url = extractFirstUrl($notes);
+    $remark = $notes;
+
+    if ($url !== '') {
+      $remark = trim(str_replace($url, '', $remark));
+      $remark = trim($remark, "- \t");
+    }
+
+    $bullet = "- " . $label;
+    if ($remark !== '') $bullet .= " – " . $remark;
+
+    $lines[] = $bullet . ":\n  " . ($url !== '' ? $url : "(no URL)");
   }
 
-  $link = $BASE_URL . "/index.php?config_id=" . $configId;
-
-  // EXACT format you want (plain text)
   $sections[] = implode("\n", [
-    "OOS items were marked on save.",
-    "Peg Name: " . $pegName,
-    "Capacity: " . $capacity,
-    "Drive Type: " . $driveType,
-    "Interface: " . $iface,
-    "Condition: " . $cond,
-    "Peg Points:",
-    implode("\n", $lines),
-    "Saved at (EST): " . $savedAt,
-    "Link: " . $link,
-    "" // spacing line
+    "PEG CONFIG:",
+    "Specs: {$capacity} / {$driveType} / {$iface} / {$cond}",
+    "",
+    "Peg Points Marked OOS:",
+    implode("\n\n", $lines),
+    "",
+    "--------------------------------------------------",
+    ""
   ]);
 }
 
+// Final email body
+$body = implode("\n", array_merge(
+  [
+    "Hello,",
+    "",
+    "Please see below the Out-of-Stock (OOS) Summary for peg points recently marked as unavailable.",
+    "",
+    "--------------------------------------------------",
+    ""
+  ],
+  $sections,
+  [
+    "Please review the affected peg configurations and take any necessary action.",
+  ]
+));
+
 $body = implode("\n", $sections);
 
-$subject = "OOS PEG Points Digest ({$queueDay} EST)";
+$subject = "OOS Summary Notification – Peg Points Marked Out of Stock ({$queueDay} EST)";
 
 $mailResult = sendOosSummaryEmail($TO, $subject, $body, $CC);
 

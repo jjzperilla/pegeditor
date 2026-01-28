@@ -44,5 +44,9 @@ if (!function_exists('requireAuth')) {
       return;
     }
 
-   }
+    // ✅ Browser/API auth logic (your existing session check)
+    // Example:
+    // session_start();
+    // if (empty($_SESSION['user_id'])) { http_response_code(401); echo json_encode(["status"=>"unauthorized"]); exit; }
+  }
 }
