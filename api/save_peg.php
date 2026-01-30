@@ -47,6 +47,7 @@ $margin        = isset($payload['marginPercent']) ? (float)$payload['marginPerce
 $inventoryMode = $payload['inventoryMode'] ?? 'balanced';
 
 $basePegPrice      = isset($payload['basePegPrice']) ? (float)$payload['basePegPrice'] : 0;
+$rawPrice      = isset($payload['rawPrice']) ? (float)$payload['rawPrice'] : 0;
 $finalBasePegPrice = isset($payload['finalBasePegPrice']) ? (float)$payload['finalBasePegPrice'] : 0;
 $adjustedPegBase   = (float)($payload['adjustedPegBase'] ?? 0);
 $adjustedSalePrice = (float)($payload['adjustedSalePrice'] ?? 0);
@@ -417,13 +418,14 @@ if ($oos === 0) {
 
   $hist = $db->prepare("
     INSERT INTO peg_history
-      (config_id, capacity, interface, condition_type, peg_name,
+      (config_id, capacity, interface, condition_type, peg_name, raw_price,
        base_price, sale_modifier_total, adjusted_price,
        modifier_total, low_buy, high_buy,
        margin_percent, inventory_mode, saved_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       peg_name=VALUES(peg_name),
+      raw_price=VALUES(raw_price),
       base_price=VALUES(base_price),
       sale_modifier_total=VALUES(sale_modifier_total),
       adjusted_price=VALUES(adjusted_price),
@@ -436,12 +438,13 @@ if ($oos === 0) {
   ");
 
   $hist->bind_param(
-    "issssdddddddss",
+    "issssddddddddss",
     $config_id,
     $capacity,
     $interface,
     $condition,
     $pegName,
+    $rawPrice,
     $finalBasePegPrice,
     $saleModifierTotal,
     $adjustedPrice,
@@ -453,8 +456,73 @@ if ($oos === 0) {
     $pegDateTimeEST
   );
   $hist->execute();
+  
+  
+   /* ===============================
+     13.1) PEG HISTORY LOG (APPEND-ONLY FOR DIGEST SUMMARY)
+     - Keeps historical before/after for email digest
+     - Skips insert if values are identical to last log row
+  =============================== */
 
-  // ✅ commit first (DB safe)
+  // Get last log row
+$lastLog = $db->prepare("
+  SELECT raw_price, base_price, adjusted_price, low_buy, high_buy,
+         sale_modifier_total, modifier_total, margin_percent, inventory_mode
+  FROM peg_history_log
+  WHERE config_id = ?
+  ORDER BY id DESC
+  LIMIT 1
+");
+$lastLog->bind_param("i", $config_id);
+$lastLog->execute();
+$lastRow = $lastLog->get_result()->fetch_assoc();
+
+// Normalize to 2 decimals for comparison
+$norm = function($v) { return number_format((float)$v, 2, '.', ''); };
+
+$shouldInsertLog = true;
+if ($lastRow) {
+  $shouldInsertLog = !(
+    $norm($lastRow['raw_price'])          === $norm($rawPrice) &&
+    $norm($lastRow['base_price'])          === $norm($finalBasePegPrice) &&
+    $norm($lastRow['adjusted_price'])      === $norm($adjustedPrice) &&
+    $norm($lastRow['low_buy'])             === $norm($lowBuy) &&
+    $norm($lastRow['high_buy'])            === $norm($highBuy) &&
+    $norm($lastRow['sale_modifier_total']) === $norm($saleModifierTotal) &&
+    $norm($lastRow['modifier_total'])      === $norm($modifierTotal) &&
+    $norm($lastRow['margin_percent'])      === $norm($margin) &&
+    (string)$lastRow['inventory_mode']     === (string)$inventoryMode
+  );
+}
+
+if ($shouldInsertLog) {
+  $logStmt = $db->prepare("
+    INSERT INTO peg_history_log
+      (config_id, raw_price, base_price, adjusted_price, low_buy, high_buy,
+       sale_modifier_total, modifier_total, margin_percent, inventory_mode, saved_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ");
+  $logStmt->bind_param(
+    "iddddddddss",
+    $config_id,
+    $rawPrice,
+    $finalBasePegPrice,
+    $adjustedPrice,
+    $lowBuy,
+    $highBuy,
+    $saleModifierTotal,
+    $modifierTotal,
+    $margin,
+    $inventoryMode,
+    $pegDateTimeEST
+  );
+  $logStmt->execute();
+}
+
+ 
+  
+
+  // commit first (DB safe)
   $db->commit();
 
   /* ===============================

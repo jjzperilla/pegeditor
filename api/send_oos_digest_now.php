@@ -119,10 +119,9 @@ try {
       $pUrl = trim((string)($p['url'] ?? ''));
 
 if ($pUrl !== '') {
-  // With URL → show label + URL
-  $pointLines[] = "- {$pLabel}:\n  {$pUrl}";
+  $safeUrl = htmlspecialchars($pUrl, ENT_QUOTES, 'UTF-8');
+  $pointLines[] = "- {$pLabel}:  <a href=\"{$safeUrl}\" target=\"_blank\">Product Link</a>";
 } else {
-  // No URL → show label only
   $pointLines[] = "- {$pLabel}";
 }
     }
@@ -134,7 +133,7 @@ if ($pUrl !== '') {
       "Specs: {$capacity} / {$driveType} / {$iface} / {$cond}",
       "",
       "Peg Points Marked OOS:",
-      implode("\n\n", $pointLines),
+      implode("\n", $pointLines),
       "",
       "<hr>",
     ]);

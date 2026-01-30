@@ -51,7 +51,7 @@ function sendOosSummaryEmail(
         // HEADERS
         // =========================
         $fromEmail = 'jperilla@servertechsolutions.com'; // MUST be verified in Brevo
-        $fromName  = 'Price Matrix - OOS Notification';
+        $fromName  = 'Price Matrix - Web App Notification';
 
         $mail->setFrom($fromEmail, $fromName);
         $mail->Sender = $fromEmail; // important for SMTP envelope

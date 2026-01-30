@@ -1291,7 +1291,8 @@ startPegLock(resolvedConfigId);
      2)RECOMPUTE ADJUSTED PEG BASE
   ===================================================== */
   const basePegPrice = Number(state.basePegPrice);
-  console.log(basePegPrice);
+  const rawPrice = basePegPrice;
+  console.log('raw price', rawPrice);
   let weightedSum = 0;
   let totalWeight = 0;
 
@@ -1350,7 +1351,8 @@ startPegLock(resolvedConfigId);
     adjustedSalePrice,
     basePegPrice,
     finalBasePegPrice,
-
+    rawPrice,
+    
     peg: {
       points: state.points.map(p => ({
         id: p.id ?? null,

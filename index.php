@@ -89,7 +89,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
             For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
           </p>
         </div>
-        <div class="badge">Price Matrix V.2.5</div>
+        <div class="badge">Price Matrix V.2.7</div>
       </header>
  <div id="pegBreadcrumb" class="peg-breadcrumb">
   <button class="crumb-link" data-action="goHome">Home</button>
