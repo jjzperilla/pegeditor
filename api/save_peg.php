@@ -15,8 +15,14 @@ requireAuth();
 
 require __DIR__ . '/db.php';
 
-
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
+
+// ---- Workspace (default Main = 1) ----
+if (session_status() !== PHP_SESSION_ACTIVE) {
+  session_start();
+}
+$workspace_id = (int)($_SESSION['workspace_id'] ?? 1);
+if ($workspace_id <= 0) $workspace_id = 1;
 
 /* ===============================
    1) READ JSON
@@ -47,7 +53,7 @@ $margin        = isset($payload['marginPercent']) ? (float)$payload['marginPerce
 $inventoryMode = $payload['inventoryMode'] ?? 'balanced';
 
 $basePegPrice      = isset($payload['basePegPrice']) ? (float)$payload['basePegPrice'] : 0;
-$rawPrice      = isset($payload['rawPrice']) ? (float)$payload['rawPrice'] : 0;
+$rawPrice          = isset($payload['rawPrice']) ? (float)$payload['rawPrice'] : 0;
 $finalBasePegPrice = isset($payload['finalBasePegPrice']) ? (float)$payload['finalBasePegPrice'] : 0;
 $adjustedPegBase   = (float)($payload['adjustedPegBase'] ?? 0);
 $adjustedSalePrice = (float)($payload['adjustedSalePrice'] ?? 0);
@@ -90,18 +96,19 @@ $db->begin_transaction();
 
 try {
   /* ===============================
-     4) CONFIG UPSERT
+     4) CONFIG UPSERT (workspace scoped)
   =============================== */
   $find = $db->prepare("
     SELECT id
     FROM peg_configs
-    WHERE capacity = ?
+    WHERE workspace_id = ?
+      AND capacity = ?
       AND drive_type_id = ?
       AND interface = ?
       AND condition_type = ?
     LIMIT 1
   ");
-  $find->bind_param("siss", $capacity, $driveTypeId, $interface, $condition);
+  $find->bind_param("isiss", $workspace_id, $capacity, $driveTypeId, $interface, $condition);
   $find->execute();
   $res = $find->get_result();
 
@@ -112,16 +119,18 @@ try {
       UPDATE peg_configs
       SET margin_percent = ?, inventory_mode = ?, peg_name = ?
       WHERE id = ?
+        AND workspace_id = ?
     ");
-    $upd->bind_param("dssi", $margin, $inventoryMode, $pegName, $config_id);
+    $upd->bind_param("dssii", $margin, $inventoryMode, $pegName, $config_id, $workspace_id);
     $upd->execute();
   } else {
+    //  FIXED TYPES: margin is double, inventory_mode string, peg_name string
     $ins = $db->prepare("
       INSERT INTO peg_configs
-        (capacity, drive_type_id, interface, condition_type, margin_percent, inventory_mode, peg_name)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+        (workspace_id, capacity, drive_type_id, interface, condition_type, margin_percent, inventory_mode, peg_name)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ");
-    $ins->bind_param("sissdds", $capacity, $driveTypeId, $interface, $condition, $margin, $inventoryMode, $pegName);
+    $ins->bind_param("isissdss", $workspace_id, $capacity, $driveTypeId, $interface, $condition, $margin, $inventoryMode, $pegName);
     $ins->execute();
     $config_id = (int)$db->insert_id;
   }
@@ -136,7 +145,7 @@ try {
   $incomingIds = array_values(array_unique(array_filter($incomingIds)));
 
   /* ===============================
-     6) LOAD OLD OOS MAP (BEFORE deletes)
+     6) LOAD OLD OOS MAP (BEFORE deletes) - scoped
      oldMap: id => ['oos'=>int, 'notified_at'=>string|null]
   =============================== */
   $oldMap = [];
@@ -147,9 +156,11 @@ try {
     $q = $db->prepare("
       SELECT id, oos, oos_notified_at
       FROM peg_points
-      WHERE id IN ($placeholders)
+      WHERE workspace_id = ?
+        AND config_id = ?
+        AND id IN ($placeholders)
     ");
-    $q->bind_param($types, ...$incomingIds);
+    $q->bind_param("ii".$types, $workspace_id, $config_id, ...$incomingIds);
     $q->execute();
     $r = $q->get_result();
 
@@ -163,7 +174,7 @@ try {
   }
 
   /* ===============================
-     7) DELETE REMOVED PEG POINTS
+     7) DELETE REMOVED PEG POINTS - scoped
   =============================== */
   if (count($incomingIds) > 0) {
     $placeholders = implode(',', array_fill(0, count($incomingIds), '?'));
@@ -171,22 +182,21 @@ try {
 
     $sql = "
       DELETE FROM peg_points
-      WHERE config_id = ?
+      WHERE workspace_id = ?
+        AND config_id = ?
         AND id NOT IN ($placeholders)
     ";
     $stmt = $db->prepare($sql);
-    $stmt->bind_param("i".$types, $config_id, ...$incomingIds);
+    $stmt->bind_param("ii".$types, $workspace_id, $config_id, ...$incomingIds);
     $stmt->execute();
   } else {
-    $stmt = $db->prepare("DELETE FROM peg_points WHERE config_id = ?");
-    $stmt->bind_param("i", $config_id);
+    $stmt = $db->prepare("DELETE FROM peg_points WHERE workspace_id = ? AND config_id = ?");
+    $stmt->bind_param("ii", $workspace_id, $config_id);
     $stmt->execute();
   }
 
   /* ===============================
-     8) PREPARE POINT UPSERT
-     - includes oos
-     - resets oos_notified_at when oos=0
+     8) PREPARE POINT UPSERT - scoped
   =============================== */
   $updPoint = $db->prepare("
     UPDATE peg_points
@@ -202,28 +212,28 @@ try {
       adjusted_peg_price=?,
       oos=?,
       oos_notified_at = IF(?=0, NULL, oos_notified_at)
-    WHERE id=? AND config_id=?
+    WHERE id=? AND config_id=? AND workspace_id=?
   ");
 
   $insPoint = $db->prepare("
     INSERT INTO peg_points
-      (config_id, label, channel, url, price, qty, weight, notes, peg_modifier, adjusted_peg_price, oos, oos_notified_at)
+      (workspace_id, config_id, label, channel, url, price, qty, weight, notes, peg_modifier, adjusted_peg_price, oos, oos_notified_at)
     VALUES
-      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
+      (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)
   ");
 
   /* ===============================
-     9) SALES DATA (REPLACE)
+     9) SALES DATA (REPLACE) - scoped
   =============================== */
   if (is_array($sales)) {
-    $delSales = $db->prepare("DELETE FROM sales_data WHERE config_id=?");
-    $delSales->bind_param("i", $config_id);
+    $delSales = $db->prepare("DELETE FROM sales_data WHERE workspace_id=? AND config_id=?");
+    $delSales->bind_param("ii", $workspace_id, $config_id);
     $delSales->execute();
 
     $insSales = $db->prepare("
       INSERT INTO sales_data
-        (config_id, capacity, day_label, sale_price, market_price, volume)
-      VALUES (?, ?, ?, ?, ?, ?)
+        (workspace_id, config_id, capacity, day_label, sale_price, market_price, volume)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
     ");
 
     foreach ($sales as $s) {
@@ -234,18 +244,19 @@ try {
       $marketPrice = (float)($s['market_price'] ?? 0);
       $volume      = (int)($s['volume'] ?? 0);
 
-      $insSales->bind_param("issddi", $config_id, $capacity, $dayLabel, $salePrice, $marketPrice, $volume);
+      $insSales->bind_param("iissddi", $workspace_id, $config_id, $capacity, $dayLabel, $salePrice, $marketPrice, $volume);
       $insSales->execute();
     }
   }
 
   /* ===============================
-     10) HISTORY PREP
+     10) HISTORY PREP - scoped
+     IMPORTANT: your UNIQUE keys should include workspace_id
   =============================== */
   $upsertHist = $db->prepare("
     INSERT INTO peg_point_history
-      (peg_point_id, day_date, price, qty, created_at)
-    VALUES (?, ?, ?, ?, ?)
+      (workspace_id, peg_point_id, day_date, price, qty, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       price = VALUES(price),
       qty   = VALUES(qty),
@@ -254,16 +265,15 @@ try {
 
   $upsertAdjHist = $db->prepare("
     INSERT INTO adjusted_peg_price_history
-      (peg_point_id, day_date, adjusted_peg_price, created_at)
-    VALUES (?, ?, ?, ?)
+      (workspace_id, peg_point_id, day_date, adjusted_peg_price, created_at)
+    VALUES (?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       adjusted_peg_price = VALUES(adjusted_peg_price),
       created_at = VALUES(created_at)
   ");
 
   /* ===============================
-     11) POINT UPSERT + COLLECT OOS (SEND ONCE RULE)
-     ✅ Send if: oos=1 AND old notified_at is empty (NULL)
+     11) POINT UPSERT + COLLECT OOS
   =============================== */
   $newlyOOS = [];
 
@@ -284,25 +294,27 @@ try {
 
     if ($pointId) {
       $updPoint->bind_param(
-        "sssdidsddiiii",
-        $label,
-        $channel,
-        $url,
-        $price,
-        $qty,
-        $weight,
-        $notes,
-        $pegModifier,
-        $adjustedPegPrice,
-        $oos,
-        $oos,
-        $pointId,
-        $config_id
-      );
+  "sssdidsddiiiii",
+  $label,
+  $channel,
+  $url,
+  $price,
+  $qty,
+  $weight,
+  $notes,
+  $pegModifier,
+  $adjustedPegPrice,
+  $oos,
+  $oos,
+  $pointId,
+  $config_id,
+  $workspace_id
+);
       $updPoint->execute();
     } else {
       $insPoint->bind_param(
-        "isssdidsddi",
+        "iisssdidsddi",
+        $workspace_id,
         $config_id,
         $label,
         $channel,
@@ -321,38 +333,39 @@ try {
     }
 
     $oldOos = 0;
-$oldNotified = null;
+    $oldNotified = null;
 
-if (isset($oldMap[$pointId])) {
-  $oldOos = (int)($oldMap[$pointId]['oos'] ?? 0);
-  $oldNotified = $oldMap[$pointId]['notified_at'] ?? null;
-}
+    if (isset($oldMap[$pointId])) {
+      $oldOos = (int)($oldMap[$pointId]['oos'] ?? 0);
+      $oldNotified = $oldMap[$pointId]['notified_at'] ?? null;
+    }
 
-// ✅ NEW OOS only: transition 0 -> 1
-if ($oldOos === 0 && $oos === 1) {
-  $newlyOOS[] = ['id' => $pointId, 'label' => $label];
-}
+    // ✅ NEW OOS only: transition 0 -> 1
+    if ($oldOos === 0 && $oos === 1) {
+      $newlyOOS[] = ['id' => $pointId, 'label' => $label];
+    }
 
-// ✅ If user UNCHECKS, remove unsent queued item for today
-if ($oos === 0) {
-  try {
-    $delQ = $db->prepare("
-      DELETE FROM oos_email_queue
-      WHERE config_id = ?
-        AND peg_point_id = ?
-        AND queue_day = ?
-        AND sent_at IS NULL
-    ");
-    $delQ->bind_param("iis", $config_id, $pointId, $pegDateEST);
-    $delQ->execute();
-  } catch (Throwable $ignored) {}
-}
+    // ✅ If user UNCHECKS, remove unsent queued item for today (scoped)
+    if ($oos === 0) {
+      try {
+        $delQ = $db->prepare("
+          DELETE FROM oos_email_queue
+          WHERE workspace_id = ?
+            AND config_id = ?
+            AND peg_point_id = ?
+            AND queue_day = ?
+            AND sent_at IS NULL
+        ");
+        $delQ->bind_param("iiis", $workspace_id, $config_id, $pointId, $pegDateEST);
+        $delQ->execute();
+      } catch (Throwable $ignored) {}
+    }
 
-    // History rows
-    $upsertHist->bind_param("isdis", $pointId, $pegDateEST, $price, $qty, $pegDateTimeEST);
+    // History rows (scoped)
+    $upsertHist->bind_param("iisdis", $workspace_id, $pointId, $pegDateEST, $price, $qty, $pegDateTimeEST);
     $upsertHist->execute();
 
-    $upsertAdjHist->bind_param("isds", $pointId, $pegDateEST, $adjustedPegPrice, $pegDateTimeEST);
+    $upsertAdjHist->bind_param("iisds", $workspace_id, $pointId, $pegDateEST, $adjustedPegPrice, $pegDateTimeEST);
     $upsertAdjHist->execute();
 
     // ✅ Send-once detection (use OLD notified_at, not new)
@@ -378,16 +391,16 @@ if ($oos === 0) {
   }));
 
   /* ===============================
-     12) MODIFIERS (REPLACE)
+     12) MODIFIERS (REPLACE) - scoped
   =============================== */
-  $delMods = $db->prepare("DELETE FROM peg_modifiers WHERE config_id=?");
-  $delMods->bind_param("i", $config_id);
+  $delMods = $db->prepare("DELETE FROM peg_modifiers WHERE workspace_id=? AND config_id=?");
+  $delMods->bind_param("ii", $workspace_id, $config_id);
   $delMods->execute();
 
   $insMod = $db->prepare("
     INSERT INTO peg_modifiers
-      (config_id, label, amount, modifier_type)
-    VALUES (?, ?, ?, ?)
+      (workspace_id, config_id, label, amount, modifier_type)
+    VALUES (?, ?, ?, ?, ?)
   ");
 
   $modifierTotal = 0;
@@ -401,12 +414,12 @@ if ($oos === 0) {
     if ($type === 'sale') $saleModifierTotal += $amt;
     else $modifierTotal += $amt;
 
-    $insMod->bind_param("isds", $config_id, $mLabel, $amt, $type);
+    $insMod->bind_param("iisds", $workspace_id, $config_id, $mLabel, $amt, $type);
     $insMod->execute();
   }
 
   /* ===============================
-     13) PEG HISTORY SNAPSHOT
+     13) PEG HISTORY SNAPSHOT - scoped
   =============================== */
   $adjustedPrice = $adjustedSalePrice;
 
@@ -418,11 +431,11 @@ if ($oos === 0) {
 
   $hist = $db->prepare("
     INSERT INTO peg_history
-      (config_id, capacity, interface, condition_type, peg_name, raw_price,
+      (workspace_id, config_id, capacity, interface, condition_type, peg_name, raw_price,
        base_price, sale_modifier_total, adjusted_price,
        modifier_total, low_buy, high_buy,
        margin_percent, inventory_mode, saved_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       peg_name=VALUES(peg_name),
       raw_price=VALUES(raw_price),
@@ -438,7 +451,8 @@ if ($oos === 0) {
   ");
 
   $hist->bind_param(
-    "issssddddddddss",
+    "iissssddddddddss",
+    $workspace_id,
     $config_id,
     $capacity,
     $interface,
@@ -456,79 +470,71 @@ if ($oos === 0) {
     $pegDateTimeEST
   );
   $hist->execute();
-  
-  
-   /* ===============================
-     13.1) PEG HISTORY LOG (APPEND-ONLY FOR DIGEST SUMMARY)
-     - Keeps historical before/after for email digest
-     - Skips insert if values are identical to last log row
+
+  /* ===============================
+     13.1) PEG HISTORY LOG (APPEND-ONLY FOR DIGEST SUMMARY) - scoped
   =============================== */
-
-  // Get last log row
-$lastLog = $db->prepare("
-  SELECT raw_price, base_price, adjusted_price, low_buy, high_buy,
-         sale_modifier_total, modifier_total, margin_percent, inventory_mode
-  FROM peg_history_log
-  WHERE config_id = ?
-  ORDER BY id DESC
-  LIMIT 1
-");
-$lastLog->bind_param("i", $config_id);
-$lastLog->execute();
-$lastRow = $lastLog->get_result()->fetch_assoc();
-
-// Normalize to 2 decimals for comparison
-$norm = function($v) { return number_format((float)$v, 2, '.', ''); };
-
-$shouldInsertLog = true;
-if ($lastRow) {
-  $shouldInsertLog = !(
-    $norm($lastRow['raw_price'])          === $norm($rawPrice) &&
-    $norm($lastRow['base_price'])          === $norm($finalBasePegPrice) &&
-    $norm($lastRow['adjusted_price'])      === $norm($adjustedPrice) &&
-    $norm($lastRow['low_buy'])             === $norm($lowBuy) &&
-    $norm($lastRow['high_buy'])            === $norm($highBuy) &&
-    $norm($lastRow['sale_modifier_total']) === $norm($saleModifierTotal) &&
-    $norm($lastRow['modifier_total'])      === $norm($modifierTotal) &&
-    $norm($lastRow['margin_percent'])      === $norm($margin) &&
-    (string)$lastRow['inventory_mode']     === (string)$inventoryMode
-  );
-}
-
-if ($shouldInsertLog) {
-  $logStmt = $db->prepare("
-    INSERT INTO peg_history_log
-      (config_id, raw_price, base_price, adjusted_price, low_buy, high_buy,
-       sale_modifier_total, modifier_total, margin_percent, inventory_mode, saved_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  $lastLog = $db->prepare("
+    SELECT raw_price, base_price, adjusted_price, low_buy, high_buy,
+           sale_modifier_total, modifier_total, margin_percent, inventory_mode
+    FROM peg_history_log
+    WHERE workspace_id = ?
+      AND config_id = ?
+    ORDER BY id DESC
+    LIMIT 1
   ");
-  $logStmt->bind_param(
-    "iddddddddss",
-    $config_id,
-    $rawPrice,
-    $finalBasePegPrice,
-    $adjustedPrice,
-    $lowBuy,
-    $highBuy,
-    $saleModifierTotal,
-    $modifierTotal,
-    $margin,
-    $inventoryMode,
-    $pegDateTimeEST
-  );
-  $logStmt->execute();
-}
+  $lastLog->bind_param("ii", $workspace_id, $config_id);
+  $lastLog->execute();
+  $lastRow = $lastLog->get_result()->fetch_assoc();
 
- 
-  
+  $norm = function($v) { return number_format((float)$v, 2, '.', ''); };
+
+  $shouldInsertLog = true;
+  if ($lastRow) {
+    $shouldInsertLog = !(
+      $norm($lastRow['raw_price'])          === $norm($rawPrice) &&
+      $norm($lastRow['base_price'])         === $norm($finalBasePegPrice) &&
+      $norm($lastRow['adjusted_price'])     === $norm($adjustedPrice) &&
+      $norm($lastRow['low_buy'])            === $norm($lowBuy) &&
+      $norm($lastRow['high_buy'])           === $norm($highBuy) &&
+      $norm($lastRow['sale_modifier_total'])=== $norm($saleModifierTotal) &&
+      $norm($lastRow['modifier_total'])     === $norm($modifierTotal) &&
+      $norm($lastRow['margin_percent'])     === $norm($margin) &&
+      (string)$lastRow['inventory_mode']    === (string)$inventoryMode
+    );
+  }
+
+  if ($shouldInsertLog) {
+    $logStmt = $db->prepare("
+      INSERT INTO peg_history_log
+        (workspace_id, config_id, raw_price, base_price, adjusted_price, low_buy, high_buy,
+         sale_modifier_total, modifier_total, margin_percent, inventory_mode, saved_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ");
+    // ✅ FIXED TYPES (needed 9 doubles)
+    $logStmt->bind_param(
+  "iiddddddddss",
+  $workspace_id,
+  $config_id,
+  $rawPrice,
+  $finalBasePegPrice,
+  $adjustedPrice,
+  $lowBuy,
+  $highBuy,
+  $saleModifierTotal,
+  $modifierTotal,
+  $margin,
+  $inventoryMode,
+  $pegDateTimeEST
+);
+    $logStmt->execute();
+  }
 
   // commit first (DB safe)
   $db->commit();
 
   /* ===============================
-     14) OOS QUEUE (AFTER COMMIT)
-     - Do NOT send email here
-     - Just enqueue today's OOS points (EST day)
+     14) OOS QUEUE (AFTER COMMIT) - scoped
   =============================== */
   $newOosCount = count($newlyOOS);
   $debugOosItems = array_slice($newlyOOS, 0, 10);
@@ -537,8 +543,8 @@ if ($shouldInsertLog) {
 
   if ($newOosCount > 0) {
     $qIns = $db->prepare("
-      INSERT INTO oos_email_queue (queue_day, config_id, peg_point_id, noted_at)
-      VALUES (?, ?, ?, NOW())
+      INSERT INTO oos_email_queue (workspace_id, queue_day, config_id, peg_point_id, noted_at)
+      VALUES (?, ?, ?, ?, NOW())
       ON DUPLICATE KEY UPDATE noted_at = noted_at
     ");
 
@@ -546,21 +552,15 @@ if ($shouldInsertLog) {
       $pid = (int)($x['id'] ?? 0);
       if ($pid <= 0) continue;
 
-      $qIns->bind_param("sii", $pegDateEST, $config_id, $pid);
+      $qIns->bind_param("isii", $workspace_id, $pegDateEST, $config_id, $pid);
       $qIns->execute();
-
-      // affected_rows: 1=insert, 2=duplicate update, 0=no-op depending on server settings
       if ($qIns->affected_rows === 1) $queuedCount++;
     }
-
-    // Optional: mark notified_at here IF you want "send-once forever" behavior
-    // BUT if you want "daily digest", DON'T set oos_notified_at here.
-    //
-    // If you still want send-once-ever, move your oos_notified_at update here.
   }
 
   echo json_encode([
     'status'    => 'success',
+    'workspace_id' => $workspace_id,
     'config_id' => $config_id,
     'saved_at'  => $pegDateTimeEST,
 

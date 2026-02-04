@@ -10,6 +10,20 @@ requireAuth();
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/oos_mailer.php';
 
+/* --------------------
+   workspace_id
+-------------------- */
+if (session_status() !== PHP_SESSION_ACTIVE) {
+  session_start();
+}
+$workspace_id = (int)($_SESSION['workspace_id'] ?? 1);
+if ($workspace_id <= 0) $workspace_id = 1;
+
+// Optional manual test override: ?workspace_id=2
+if (isset($_GET['workspace_id'])) {
+  $workspace_id = (int)$_GET['workspace_id'];
+  if ($workspace_id <= 0) $workspace_id = 1;
+}
 
 // -------------------- time --------------------
 $est     = new DateTime('now', new DateTimeZone('America/New_York'));
@@ -41,9 +55,12 @@ try {
     FROM peg_points p
     JOIN peg_configs c ON c.id = p.config_id
     LEFT JOIN drive_types dt ON dt.id = c.drive_type_id
-    WHERE p.oos = 1
+    WHERE p.workspace_id = ?
+      AND c.workspace_id = ?
+      AND p.oos = 1
     ORDER BY p.config_id ASC, p.id ASC
   ");
+  $q->bind_param("ii", $workspace_id, $workspace_id);
   $q->execute();
   $r = $q->get_result();
 
@@ -78,7 +95,8 @@ try {
     echo json_encode([
       "status" => "ok",
       "message" => "No OOS peg points found (nothing to send).",
-      "date_est" => $today
+      "date_est" => $today,
+      "workspace_id" => $workspace_id
     ]);
     exit;
   }
@@ -89,7 +107,8 @@ try {
   $latestStmt = $db->prepare("
     SELECT MAX(saved_at) AS latest_saved_at
     FROM peg_history
-    WHERE config_id = ?
+    WHERE workspace_id = ?
+      AND config_id = ?
   ");
 
   $sections = []; // each: ['saved_at' => 'Y-m-d H:i:s', 'text' => '...']
@@ -99,7 +118,7 @@ try {
     $points = $bundle['points'];
 
     // latest saved_at (only for sorting)
-    $latestStmt->bind_param("i", $configId);
+    $latestStmt->bind_param("ii", $workspace_id, $configId);
     $latestStmt->execute();
     $latestRow = $latestStmt->get_result()->fetch_assoc();
     $latestSavedAt = (string)($latestRow['latest_saved_at'] ?? '');
@@ -111,23 +130,20 @@ try {
     $cond      = strtoupper(trim((string)($cfg['condition']  ?? '')));
 
     // Build point lines in Google/Gmail-friendly style
-    // - Point 1:
-    //   URL
     $pointLines = [];
     foreach ($points as $p) {
       $pLabel = trim((string)($p['label'] ?? 'PEG Point'));
-      $pUrl = trim((string)($p['url'] ?? ''));
+      $pUrl   = trim((string)($p['url'] ?? ''));
 
-if ($pUrl !== '') {
-  $safeUrl = htmlspecialchars($pUrl, ENT_QUOTES, 'UTF-8');
-  $pointLines[] = "- {$pLabel}:  <a href=\"{$safeUrl}\" target=\"_blank\">Product Link</a>";
-} else {
-  $pointLines[] = "- {$pLabel}";
-}
+      if ($pUrl !== '') {
+        $safeUrl = htmlspecialchars($pUrl, ENT_QUOTES, 'UTF-8');
+        $pointLines[] = "- {$pLabel}:  <a href=\"{$safeUrl}\" target=\"_blank\">Product Link</a>";
+      } else {
+        $pointLines[] = "- {$pLabel}";
+      }
     }
     if (!$pointLines) $pointLines[] = "";
 
-    // IMPORTANT: No Peg Config name; keep blank
     $sectionText = implode("\n", [
       "PEG CONFIG:",
       "Specs: {$capacity} / {$driveType} / {$iface} / {$cond}",
@@ -144,7 +160,7 @@ if ($pUrl !== '') {
     ];
   }
 
-  // Sort newest first (still useful)
+  // Sort newest first
   usort($sections, function($a, $b) {
     return strcmp($b['saved_at'], $a['saved_at']);
   });
@@ -156,11 +172,9 @@ if ($pUrl !== '') {
 
   $bodyText = implode("\n", array_merge(
     [
-  
       "Please see below the Out-of-Stock (OOS) Summary for peg points recently marked as unavailable.",
       "",
       "<hr>",
-
     ],
     array_column($sections, 'text'),
     [
@@ -174,6 +188,7 @@ if ($pUrl !== '') {
       "status" => "ok",
       "dry_run" => true,
       "date_est" => $today,
+      "workspace_id" => $workspace_id,
       "configs" => count($sections),
       "subject" => $subject,
       "body_preview" => $bodyText
@@ -181,7 +196,6 @@ if ($pUrl !== '') {
     exit;
   }
 
-  // Send as HTML but preserve plain-text formatting
   $bodyHtml = nl2br($bodyText);
 
   $resMail = sendOosSummaryEmail($to, $subject, $bodyHtml, $cc);
@@ -199,6 +213,7 @@ if ($pUrl !== '') {
   echo json_encode([
     "status" => "ok",
     "date_est" => $today,
+    "workspace_id" => $workspace_id,
     "sent" => [
       "to" => $to,
       "cc" => implode(", ", $cc),

@@ -1,6 +1,16 @@
 <?php
+require "auth.php";
+requireAuth();
+
 header('Content-Type: application/json');
 require 'db.php';
+
+// ---- Workspace (default Main = 1) ----
+if (session_status() !== PHP_SESSION_ACTIVE) {
+  session_start();
+}
+$workspace_id = (int)($_SESSION['workspace_id'] ?? 1);
+if ($workspace_id <= 0) $workspace_id = 1;
 
 $capacity   = $_GET['capacity']   ?? null;
 $interface  = $_GET['interface']  ?? null;
@@ -14,10 +24,10 @@ $DRIVE_TYPE_MAP = [
   'SSD' => 2
 ];
 
-$driveTypeId =
-  $DRIVE_TYPE_MAP[strtoupper($driveType ?? '')] ?? null;
+$driveTypeId = $DRIVE_TYPE_MAP[strtoupper($driveType ?? '')] ?? null;
 
 if (!$capacity || !$interface || !$driveTypeId || !$condition) {
+  http_response_code(400);
   echo json_encode([
     'status' => 'error',
     'message' => 'Missing or invalid filters'
@@ -34,17 +44,21 @@ SELECT
 FROM peg_point_history pph
 JOIN peg_points pp
   ON pp.id = pph.peg_point_id
+ AND pp.workspace_id = pph.workspace_id
 JOIN peg_configs pc
   ON pc.id = pp.config_id
+ AND pc.workspace_id = pp.workspace_id
 WHERE
-  pc.capacity = ?
+  pph.workspace_id = ?
+  AND pc.workspace_id = ?
+  AND pc.capacity = ?
   AND pc.interface = ?
   AND pc.drive_type_id = ?
   AND pc.condition_type = ?
 ";
 
-$types  = "ssis";
-$params = [$capacity, $interface, $driveTypeId, $condition];
+$types  = "iissis";
+$params = [$workspace_id, $workspace_id, $capacity, $interface, $driveTypeId, $condition];
 
 if ($days) {
   $sql .= " AND pph.day_date >= NOW() - INTERVAL ? DAY";
@@ -60,6 +74,7 @@ ORDER BY
 
 $stmt = $db->prepare($sql);
 if (!$stmt) {
+  http_response_code(500);
   echo json_encode([
     'status' => 'error',
     'message' => $db->error
@@ -78,6 +93,7 @@ while ($row = $result->fetch_assoc()) {
 }
 
 echo json_encode([
-  'status' => 'ok',
-  'data' => $data
+  'status'       => 'ok',
+  'workspace_id' => $workspace_id,
+  'data'         => $data
 ]);

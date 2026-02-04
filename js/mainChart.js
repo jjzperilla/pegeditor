@@ -164,3 +164,17 @@ function renderCapSummaryList(rows, days) {
 
   if (note) note.textContent = `Range: last ${days} day(s)`;
 }
+
+window.initMainChart = function(workspaceId) {
+  // destroy old chart if exists
+  if (window.mainChartInstance) {
+    window.mainChartInstance.destroy();
+  }
+
+  // fetch using workspaceId
+  fetch(`api/avg_history_all_caps.php?workspace_id=${workspaceId}`)
+    .then(r => r.json())
+    .then(data => {
+      window.mainChartInstance = renderChart(data);
+    });
+};

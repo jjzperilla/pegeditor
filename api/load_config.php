@@ -4,6 +4,13 @@ requireAuth();
 header('Content-Type: application/json');
 require 'db.php';
 
+// ---- Workspace (default Main = 1) ----
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+$workspace_id = (int)($_SESSION['workspace_id'] ?? 1);
+if ($workspace_id <= 0) $workspace_id = 1;
+
 $payload = json_decode(file_get_contents('php://input'), true);
 
 if (!isset($payload['config_id'])) {
@@ -16,9 +23,17 @@ if (!isset($payload['config_id'])) {
 }
 
 $config_id = (int)$payload['config_id'];
+if ($config_id <= 0) {
+    http_response_code(400);
+    echo json_encode([
+        'status' => 'error',
+        'message' => 'Invalid config_id'
+    ]);
+    exit;
+}
 
 /* ===============================
-   LOAD CONFIG
+   LOAD CONFIG (scoped)
 ================================ */
 $stmt = $db->prepare("
     SELECT
@@ -30,25 +45,28 @@ $stmt = $db->prepare("
         margin_percent
     FROM peg_configs
     WHERE id = ?
+      AND workspace_id = ?
+    LIMIT 1
 ");
-$stmt->bind_param("i", $config_id);
+$stmt->bind_param("ii", $config_id, $workspace_id);
 $stmt->execute();
 $config = $stmt->get_result()->fetch_assoc();
 
 if (!$config) {
+    http_response_code(404);
     echo json_encode(['status' => 'not_found']);
     exit;
 }
 
-$margin = isset($config['margin_percent'])
+$margin = isset($config['margin_percent']) && $config['margin_percent'] !== null
     ? (float)$config['margin_percent']
-    : 80;
+    : 80.0;
 
 /* ===============================
-   LOAD PEG POINTS
+   LOAD PEG POINTS (scoped)
 ================================ */
 $points = [];
-$res = $db->query("
+$stmt = $db->prepare("
     SELECT
         id,
         label,
@@ -59,31 +77,39 @@ $res = $db->query("
         weight,
         created_at
     FROM peg_points
-    WHERE config_id = $config_id
+    WHERE config_id = ?
+      AND workspace_id = ?
     ORDER BY created_at ASC
 ");
+$stmt->bind_param("ii", $config_id, $workspace_id);
+$stmt->execute();
+$res = $stmt->get_result();
 
 while ($row = $res->fetch_assoc()) {
     $row['price']      = (float)$row['price'];
     $row['qty']        = (int)$row['qty'];
     $row['weight']     = (float)$row['weight'];
-    $row['created_at'] = $row['created_at'];
     $points[] = $row;
 }
 
 /* ===============================
-   LOAD MODIFIERS
+   LOAD MODIFIERS (scoped)
 ================================ */
-$res = $db->query("
+$modifiers = []; // ✅ FIX: initialize
+$stmt = $db->prepare("
     SELECT
         id,
         label,
         amount,
         modifier_type
     FROM peg_modifiers
-    WHERE config_id = $config_id
+    WHERE config_id = ?
+      AND workspace_id = ?
     ORDER BY id ASC
 ");
+$stmt->bind_param("ii", $config_id, $workspace_id);
+$stmt->execute();
+$res = $stmt->get_result();
 
 while ($row = $res->fetch_assoc()) {
     $row['amount'] = (float)$row['amount'];
@@ -92,15 +118,19 @@ while ($row = $res->fetch_assoc()) {
 }
 
 /* ===============================
-   LOAD SALES DATA
+   LOAD SALES DATA (scoped)
 ================================ */
 $sales = [];
-$res = $db->query("
+$stmt = $db->prepare("
     SELECT day_label, sale_price, market_price, volume
     FROM sales_data
-    WHERE config_id = $config_id
+    WHERE config_id = ?
+      AND workspace_id = ?
     ORDER BY id ASC
 ");
+$stmt->bind_param("ii", $config_id, $workspace_id);
+$stmt->execute();
+$res = $stmt->get_result();
 
 while ($row = $res->fetch_assoc()) {
     $row['sale_price']   = (float)$row['sale_price'];
@@ -114,6 +144,8 @@ while ($row = $res->fetch_assoc()) {
 ================================ */
 echo json_encode([
     'status'         => 'success',
+    'workspace_id'   => $workspace_id,
+
     'config_id'      => (int)$config['id'],
     'capacity'       => $config['capacity'],
     'interface'      => $config['interface'],
@@ -130,4 +162,3 @@ echo json_encode([
         'sales'     => $sales
     ]
 ]);
-

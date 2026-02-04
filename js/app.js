@@ -56,9 +56,9 @@ resetIdleTimer();
 
 
 import { setPegSheetInstance } from './tableEditor.js';
-import { getUrlConfigId, setUrlConfigId } from './helpers/configURL.js';
+import { getUrlConfigId, setUrlConfigId, resetUrlAfterWorkspaceChange } from './helpers/configURL.js';
 import {initAutosave, scheduleAutosave, cancelAutosave, confirmIfUnsaved, pauseAutosave, resumeAutosave, clearChangeIndicator, markUnsaved, markSaved, markSaving, exitHistoryModeIfNeeded, resumeAutosaveAfterUnloadCancel } from './helpers/autoSave.js';
-import { breadcrumbEditor, breadcrumbHome, breadcrumbHistory } from './helpers/format.js';
+import { breadcrumbEditor, breadcrumbHome, breadcrumbHistory, initWorkspaceDropdownUI } from './helpers/format.js';
 import { isValidPegRow, showPegHistoryLoading, updatePegRowAdjustedUI, hexToRgba, buildOOSSummaryEmail } from './helpers/helpers.js';
 import { refreshChart, highlightSelectedPegPoint, createPegChart, createSalesChart, createPegHistoryChart, buildPegPointDatasets, renderPegPointHistoryChart, clearPegPointHistoryChart} from './charts.js';
 import {computePeg, computeBandPricesFromMargin, computeTotalWeight, computeTotalAdjustedPeg, recomputeRowAdjustedPegPrices, computePegFromPoints, computeAdjustedPeg, computePegPointAverages } from './helpers/computation.js';
@@ -3246,4 +3246,66 @@ document
   cancelAutosave(); 
   });
 
+//workspace
+async function loadWorkspacesUI() {
+  const sel = document.getElementById("workspaceSelect");
+  const roleEl = document.getElementById("workspaceRole");
+  if (!sel) return;
+
+  const res = await fetch("api/workspaces.php");
+  const data = await res.json();
+
+  if (data.status !== "ok") {
+    console.warn("Failed to load workspaces", data);
+    return;
+  }
+
+  sel.innerHTML = "";
+  let activeRole = "";
+
+  for (const ws of data.workspaces) {
+    const opt = document.createElement("option");
+    opt.value = ws.id;
+    opt.textContent = ws.name;
+    if (ws.active) {
+      opt.selected = true;
+      activeRole = ws.role;
+    }
+    sel.appendChild(opt);
+  }
+
+  roleEl.textContent = activeRole ? `(${activeRole})` : "";
+
+sel.onchange = async () => {
+  const newWorkspaceId = parseInt(sel.value, 10);
+  if (!newWorkspaceId) return;
+
+  const res = await fetch("api/set_workspace.php", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ workspace_id: newWorkspaceId })
+  });
+
+  const data = await res.json();
+  if (data.status !== "ok") {
+    alert(data.message || "Failed to switch workspace");
+    return;
+  }
+
+  // update global state
+  window.CURRENT_WORKSPACE_ID = newWorkspaceId;
+
+  // reset URL + refresh data
+  resetUrlAfterWorkspaceChange();
+  window.location.reload();
+};
+initWorkspaceDropdownUI();
+}
+
+
+
+// call after DOM ready
+document.addEventListener("DOMContentLoaded", () => {
+  loadWorkspacesUI();
+});
 

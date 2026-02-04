@@ -36,6 +36,27 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
     <aside class="sidebar">
   <div class="sidebar-content">    
   <div class="sidebar-section collapsed">
+   <div class="workspace-wrapper">
+  <label for="workspaceSelect" class="workspace-label">
+  <svg class="workspace-ico" viewBox="0 0 24 24" aria-hidden="true">
+    <path d="M3 21V3h18v18H3zm2-2h4v-4H5v4zm0-6h4V9H5v4zm0-6h4V5H5v2zm6 12h8v-2h-8v2zm0-4h8v-2h-8v2zm0-4h8V9h-8v2z"/>
+  </svg>
+  <b>WORKSPACE</b>
+</label>
+  <select id="workspaceSelect"></select>
+  <div class="dd" id="workspaceDD">
+  <button type="button" class="dd__btn" id="workspaceDDBtn" aria-haspopup="listbox" aria-expanded="false">
+    <span class="dd__text" id="workspaceDDText">Select workspace</span>
+    <svg class="dd__chev" viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M5.5 7.5L10 12l4.5-4.5" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+    </svg>
+  </button>
+
+  <div class="dd__menu" id="workspaceDDMenu" role="listbox"></div>
+</div>   
+  <span id="workspaceRole" style="opacity:.8;" hidden></span>
+</div>
+ 
     <button class="section-header" data-toggle="pegTableEditor">
       <span>PEG TABLE EDITOR</span>
       <span class="chevron">▼</span>
@@ -89,7 +110,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
             For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
           </p>
         </div>
-        <div class="badge">Price Matrix V.2.7</div>
+        <div class="badge">Price Matrix V.3.0</div>
       </header>
  <div id="pegBreadcrumb" class="peg-breadcrumb">
   <button class="crumb-link" data-action="goHome">Home</button>
@@ -678,14 +699,20 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
     </div>
 
   </div>
+  
 </div>
+  
   <?php
 $configIdFromUrl = isset($_GET['config_id']) ? (int)$_GET['config_id'] : 0;
 ?>
 <script>
+  window.CURRENT_WORKSPACE_ID = <?= (int)($_SESSION['workspace_id'] ?? 1) ?>;
+</script>  
+<script>
   window.initialConfigId = <?php echo $configIdFromUrl; ?>;
   console.log("[INIT] initialConfigId =", window.initialConfigId);
 </script>
+  
 <script src="js/auth.js"></script>  
 <script type="module" src="js/api.js"></script>
 <script type="module" src="js/app.js"></script>

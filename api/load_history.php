@@ -9,12 +9,20 @@ ini_set('display_errors', 0);
 header("Content-Type: application/json");
 require "db.php";
 
+// ---- Workspace (default Main = 1) ----
+if (session_status() !== PHP_SESSION_ACTIVE) {
+    session_start();
+}
+$workspace_id = (int)($_SESSION['workspace_id'] ?? 1);
+if ($workspace_id <= 0) $workspace_id = 1;
+
 /* ===============================
    INPUT
 ================================ */
 $capacity = $_GET['capacity'] ?? null;
 
 if (!$capacity) {
+    http_response_code(400);
     echo json_encode([
         "status" => "error",
         "message" => "Missing capacity"
@@ -23,7 +31,7 @@ if (!$capacity) {
 }
 
 /* ===============================
-   LOAD PEG HISTORY (SNAPSHOT)
+   LOAD PEG HISTORY (SNAPSHOT) - workspace scoped
 ================================ */
 $stmt = $db->prepare("
     SELECT
@@ -46,13 +54,16 @@ $stmt = $db->prepare("
         h.margin_percent,
         h.saved_at
     FROM peg_history h
-    JOIN peg_configs pc ON pc.id = h.config_id
+    JOIN peg_configs pc
+      ON pc.id = h.config_id
+     AND pc.workspace_id = h.workspace_id
     JOIN drive_types dt ON dt.id = pc.drive_type_id
-    WHERE h.capacity = ?
+    WHERE h.workspace_id = ?
+      AND h.capacity = ?
     ORDER BY h.saved_at DESC
 ");
 
-$stmt->bind_param("s", $capacity);
+$stmt->bind_param("is", $workspace_id, $capacity);
 $stmt->execute();
 $res = $stmt->get_result();
 
@@ -86,6 +97,7 @@ while ($row = $res->fetch_assoc()) {
    RESPONSE
 ================================ */
 echo json_encode([
-    "status"  => "success",
-    "history" => $history
+    "status"       => "success",
+    "workspace_id" => $workspace_id,
+    "history"      => $history
 ]);

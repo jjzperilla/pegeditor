@@ -1,5 +1,4 @@
 <?php
-// api/send_price_change_digest_now.php
 ini_set('display_errors', 1);
 error_reporting(E_ALL);
 header('Content-Type: application/json');
@@ -10,22 +9,22 @@ requireAuth();
 require __DIR__ . '/db.php';
 require_once __DIR__ . '/oos_mailer.php';
 
-// -------------------- time (EST window) --------------------
+if (session_status() !== PHP_SESSION_ACTIVE) session_start();
+$workspace_id = (int)($_SESSION['workspace_id'] ?? 1);
+if (isset($_GET['workspace_id'])) $workspace_id = (int)$_GET['workspace_id'];
+if ($workspace_id <= 0) $workspace_id = 1;
+
+// -------------------- time (EST day_date is DATE) --------------------
 $tzEST = new DateTimeZone('America/New_York');
-$tzUTC = new DateTimeZone('UTC');
 
-// today 00:00 EST
-$todayEST = new DateTime('today', $tzEST);
-// yesterday 00:00 EST
-$yesterdayEST = (clone $todayEST)->modify('-1 day');
+$todayEST     = new DateTime('today', $tzEST);              // today 00:00 EST
+$yesterdayEST = (clone $todayEST)->modify('-1 day');        // yesterday 00:00 EST
 
-// Convert window to UTC for DB filtering (assuming DB stores UTC datetimes)
-$startUTC = (clone $yesterdayEST)->setTimezone($tzUTC)->format('Y-m-d H:i:s');
-$endUTC = (new DateTime('now', $tzEST))->setTimezone($tzUTC)->format('Y-m-d H:i:s');
+$startUTC = $yesterdayEST->format('Y-m-d'); // DATE
+$endUTC   = $todayEST->format('Y-m-d');     // DATE
 
-$todayLabel = $todayEST->format('Y-m-d');
-$windowLabel = $yesterdayEST->format('Y-m-d') . " 00:00 → " . $todayEST->format('Y-m-d') . " 00:00";
-
+$todayLabel  = $todayEST->format('Y-m-d');
+$windowLabel = "{$startUTC} → {$endUTC}";
 // recipients
 $to = "jperilla@servertechsolutions.com";
 $cc = ["jperilla@servertechsolutions.com", "jj.perilla12@gmail.com"];
@@ -38,24 +37,27 @@ try {
    * 1) Pull all peg points + their configs (so we can label/group)
    *    (Same idea as OOS: build config bundle)
    */
-  $qPoints = $db->prepare("
-    SELECT
-      p.id AS peg_point_id,
-      p.config_id,
-      p.label AS peg_point_label,
-
-      c.capacity,
-      c.interface,
-      c.condition_type,
-      c.peg_name,
-      COALESCE(dt.label, c.drive_type_id) AS drive_type_label
-    FROM peg_points p
-    JOIN peg_configs c ON c.id = p.config_id
-    LEFT JOIN drive_types dt ON dt.id = c.drive_type_id
-    ORDER BY p.config_id ASC, p.id ASC
-  ");
-  $qPoints->execute();
-  $rPoints = $qPoints->get_result();
+$qPoints = $db->prepare("
+  SELECT
+    p.id AS peg_point_id,
+    p.config_id,
+    p.label AS peg_point_label,
+    c.capacity,
+    c.interface,
+    c.condition_type,
+    c.peg_name,
+    COALESCE(dt.label, c.drive_type_id) AS drive_type_label
+  FROM peg_points p
+  JOIN peg_configs c
+    ON c.id = p.config_id
+   AND c.workspace_id = p.workspace_id
+  LEFT JOIN drive_types dt ON dt.id = c.drive_type_id
+  WHERE p.workspace_id = ?
+  ORDER BY p.config_id ASC, p.id ASC
+");
+$qPoints->bind_param("i", $workspace_id);
+$qPoints->execute();
+$rPoints = $qPoints->get_result();
 
   $pointsById = [];        // peg_point_id => meta
   $cfgById    = [];        // config_id => cfg meta
@@ -94,7 +96,7 @@ try {
   /**
    * 2) Pull peg_point_history rows in the UTC window (ordered)
    */
-  $qHist = $db->prepare("
+$qHist = $db->prepare("
   SELECT
     h.peg_point_id,
     h.day_date,
@@ -102,11 +104,15 @@ try {
     p.config_id,
     COALESCE(NULLIF(TRIM(p.label), ''), CONCAT('PEG Point #', h.peg_point_id)) AS peg_point_label
   FROM peg_point_history h
-  JOIN peg_points p ON p.id = h.peg_point_id
-  WHERE h.day_date >= ? AND h.day_date < ?
+  JOIN peg_points p
+    ON p.id = h.peg_point_id
+   AND p.workspace_id = h.workspace_id
+  WHERE h.workspace_id = ?
+    AND h.day_date >= ?
+    AND h.day_date <= ?
   ORDER BY p.config_id ASC, h.peg_point_id ASC, h.day_date ASC
 ");
-$qHist->bind_param("ss", $startUTC, $endUTC);
+$qHist->bind_param("iss", $workspace_id, $startUTC, $endUTC);
 $qHist->execute();
 $rHist = $qHist->get_result();
 
@@ -144,14 +150,15 @@ while ($row = $rHist->fetch_assoc()) {
    *    - previous_price -> first_price_in_window (if different)
    *    - then each subsequent record inside window compared to previous record
    */
-  $qPrev = $db->prepare("
-    SELECT price
-    FROM peg_point_history
-    WHERE peg_point_id = ?
-      AND day_date < ?
-    ORDER BY day_date DESC
-    LIMIT 1
-  ");
+$qPrev = $db->prepare("
+  SELECT price
+  FROM peg_point_history
+  WHERE workspace_id = ?
+    AND peg_point_id = ?
+    AND day_date < ?
+  ORDER BY day_date DESC
+  LIMIT 1
+");
 
   $changesByConfig = []; // config_id => ['cfg'=>..., 'changes'=>[...]]
   $totalChanges = 0;
@@ -170,8 +177,8 @@ $pLabel = (string)$pointMeta[$ppid]['label'];
     }
 
     // previous price before window
-    $qPrev->bind_param("is", $ppid, $startUTC);
-    $qPrev->execute();
+   $qPrev->bind_param("iis", $workspace_id, $ppid, $startUTC);
+$qPrev->execute();
     $prevRow = $qPrev->get_result()->fetch_assoc();
     $prevPrice = $prevRow ? (float)$prevRow['price'] : null;
 
@@ -228,29 +235,27 @@ $pLabel = (string)$pointMeta[$ppid]['label'];
   /**
    * 4) Prepare peg_history before/after for summary (per config with changes)
    */
-function getBeforeAfterSnapshots(mysqli $db, int $configId, string $startUTC, string $endUTC): array {
+function getBeforeAfterSnapshots(mysqli $db, int $workspaceId, int $configId): array {
 
-  // AFTER: latest snapshot (this is correct)
   $stmtAfter = $db->prepare("
     SELECT saved_at, raw_price, base_price, adjusted_price, low_buy, high_buy
     FROM peg_history_log
-    WHERE config_id = ?
+    WHERE workspace_id = ?
+      AND config_id = ?
     ORDER BY saved_at DESC
     LIMIT 1
   ");
-  $stmtAfter->bind_param("i", $configId);
+  $stmtAfter->bind_param("ii", $workspaceId, $configId);
   $stmtAfter->execute();
   $after = $stmtAfter->get_result()->fetch_assoc();
 
-  if (!$after) {
-    return [null, null];
-  }
+  if (!$after) return [null, null];
 
-  // BEFORE: last snapshot that is DIFFERENT from AFTER
   $stmtBefore = $db->prepare("
     SELECT saved_at, raw_price, base_price, adjusted_price, low_buy, high_buy
     FROM peg_history_log
-    WHERE config_id = ?
+    WHERE workspace_id = ?
+      AND config_id = ?
       AND saved_at < ?
       AND (
         raw_price <> ?
@@ -263,7 +268,8 @@ function getBeforeAfterSnapshots(mysqli $db, int $configId, string $startUTC, st
     LIMIT 1
   ");
   $stmtBefore->bind_param(
-    "isddddd",
+    "iisddddd",
+    $workspaceId,
     $configId,
     $after['saved_at'],
     $after['raw_price'],
@@ -275,10 +281,7 @@ function getBeforeAfterSnapshots(mysqli $db, int $configId, string $startUTC, st
   $stmtBefore->execute();
   $before = $stmtBefore->get_result()->fetch_assoc();
 
-  // Fallback: if this is the first ever snapshot
-  if (!$before) {
-    $before = $after;
-  }
+  if (!$before) $before = $after;
 
   return [$before, $after];
 }
@@ -313,8 +316,7 @@ function getBeforeAfterSnapshots(mysqli $db, int $configId, string $startUTC, st
     if (!$changeLines) $changeLines[] = "";
 
     // Summary before/after from peg_history
-    [$before, $after] = getBeforeAfterSnapshots($db, $configId, $startUTC, $endUTC);
-
+   [$before, $after] = getBeforeAfterSnapshots($db, $workspace_id, $configId);
     
  if ($dryRun) {
   $summaryLines[] = "DEBUG config_id={$configId}";

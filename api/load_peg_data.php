@@ -12,12 +12,20 @@ ini_set('display_errors', 0);
 
 try {
 
+    // ---- Workspace (default Main = 1) ----
+    if (session_status() !== PHP_SESSION_ACTIVE) {
+        session_start();
+    }
+    $workspace_id = (int)($_SESSION['workspace_id'] ?? 1);
+    if ($workspace_id <= 0) $workspace_id = 1;
+
     $capacity   = $_GET["capacity"]   ?? null;
     $interface  = $_GET["interface"]  ?? null;
     $condition  = $_GET["condition"]  ?? null;
     $drive_type = $_GET["drive_type"] ?? null;
 
     if (!$capacity || !$interface || !$condition || !$drive_type) {
+        http_response_code(400);
         echo json_encode([
             "status" => "error",
             "message" => "Missing parameters"
@@ -25,8 +33,11 @@ try {
         exit;
     }
 
+    // Optional: normalize drive type to match drive_types.label
+    $drive_type = strtoupper(trim((string)$drive_type));
+
     /* ===============================
-       LOAD CONFIG (WITH MARGIN %)
+       LOAD CONFIG (WITH MARGIN %) - scoped
     ================================ */
     $stmt = $db->prepare("
         SELECT
@@ -37,17 +48,19 @@ try {
         FROM peg_configs pc
         JOIN drive_types dt ON dt.id = pc.drive_type_id
         WHERE
-            pc.capacity = ?
+            pc.workspace_id = ?
+            AND pc.capacity = ?
             AND pc.interface = ?
             AND pc.condition_type = ?
             AND dt.label = ?
         LIMIT 1
     ");
-    $stmt->bind_param("ssss", $capacity, $interface, $condition, $drive_type);
+    $stmt->bind_param("issss", $workspace_id, $capacity, $interface, $condition, $drive_type);
     $stmt->execute();
     $res = $stmt->get_result();
 
     if ($res->num_rows === 0) {
+        http_response_code(404);
         echo json_encode(["status" => "not_found"]);
         exit;
     }
@@ -55,21 +68,22 @@ try {
     $config = $res->fetch_assoc();
     $config_id = (int)$config["id"];
     $peg_name  = $config["peg_name"] ?? null;
-    $margin    = isset($config["margin_percent"]) ? (float)$config["margin_percent"] : 50;
+    $margin    = isset($config["margin_percent"]) ? (float)$config["margin_percent"] : 50.0;
 
     /* ===============================
-       LOAD LATEST ADJUSTED PRICE
+       LOAD LATEST ADJUSTED PRICE - scoped
     ================================ */
-    $adjusted_price = 0;
+    $adjusted_price = 0.0;
 
     $stmt = $db->prepare("
         SELECT adjusted_price
         FROM peg_history
-        WHERE config_id = ?
+        WHERE workspace_id = ?
+          AND config_id = ?
         ORDER BY saved_at DESC
         LIMIT 1
     ");
-    $stmt->bind_param("i", $config_id);
+    $stmt->bind_param("ii", $workspace_id, $config_id);
     $stmt->execute();
     $res = $stmt->get_result();
 
@@ -78,11 +92,10 @@ try {
     }
 
     /* ===============================
-       LOAD PEG POINTS
+       LOAD PEG POINTS - scoped
     ================================ */
     $points = [];
 
-    // NOTE: If your table does NOT have created_at, this will throw and you'll see it in JSON now.
     $stmt = $db->prepare("
         SELECT
             id,
@@ -99,10 +112,11 @@ try {
             oos_notified_at,
             created_at
         FROM peg_points
-        WHERE config_id = ?
+        WHERE workspace_id = ?
+          AND config_id = ?
         ORDER BY created_at ASC, id ASC
     ");
-    $stmt->bind_param("i", $config_id);
+    $stmt->bind_param("ii", $workspace_id, $config_id);
     $stmt->execute();
     $q = $stmt->get_result();
 
@@ -116,8 +130,8 @@ try {
             "qty" => (int)$row["qty"],
             "weight" => (float)$row["weight"],
             "notes" => $row["notes"] ?? "",
-            "peg_modifier" => (float)$row["peg_modifier"],
-            "adjusted_peg_price" => (float)$row["adjusted_peg_price"],
+            "peg_modifier" => (float)($row["peg_modifier"] ?? 0),
+            "adjusted_peg_price" => (float)($row["adjusted_peg_price"] ?? 0),
             "oos" => (int)($row["oos"] ?? 0),
             "oos_notified_at" => $row["oos_notified_at"] ?? null,
             "created_at" => $row["created_at"] ?? null
@@ -125,17 +139,18 @@ try {
     }
 
     /* ===============================
-       LOAD MODIFIERS
+       LOAD MODIFIERS - scoped
     ================================ */
     $mods = [];
 
     $stmt = $db->prepare("
         SELECT id, label, amount, modifier_type
         FROM peg_modifiers
-        WHERE config_id = ?
+        WHERE workspace_id = ?
+          AND config_id = ?
         ORDER BY id ASC
     ");
-    $stmt->bind_param("i", $config_id);
+    $stmt->bind_param("ii", $workspace_id, $config_id);
     $stmt->execute();
     $q = $stmt->get_result();
 
@@ -146,17 +161,18 @@ try {
     }
 
     /* ===============================
-       LOAD SALES
+       LOAD SALES - scoped
     ================================ */
     $sales = [];
 
     $stmt = $db->prepare("
         SELECT id, capacity, day_label, sale_price, market_price, volume
         FROM sales_data
-        WHERE config_id = ?
+        WHERE workspace_id = ?
+          AND config_id = ?
         ORDER BY id ASC
     ");
-    $stmt->bind_param("i", $config_id);
+    $stmt->bind_param("ii", $workspace_id, $config_id);
     $stmt->execute();
     $q = $stmt->get_result();
 
@@ -172,6 +188,7 @@ try {
     ================================ */
     echo json_encode([
         "status"         => "success",
+        "workspace_id"   => $workspace_id,
         "config_id"      => $config_id,
         "peg_name"       => $peg_name,
         "drive_type"     => $config["drive_type"],

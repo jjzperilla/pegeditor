@@ -4,6 +4,13 @@ requireAuth();
 header('Content-Type: application/json');
 require 'db.php';
 
+// ---- Workspace (default Main = 1) ----
+if (session_status() !== PHP_SESSION_ACTIVE) {
+  session_start();
+}
+$workspace_id = (int)($_SESSION['workspace_id'] ?? 1);
+if ($workspace_id <= 0) $workspace_id = 1;
+
 $raw = file_get_contents('php://input');
 error_log("🟢 RAW:\n" . $raw);
 
@@ -22,28 +29,27 @@ if (
   exit;
 }
 
-$date   = $data['date'];          // YYYY-MM-DD
+$date   = (string)$data['date'];   // YYYY-MM-DD
 $points = $data['points'];
 
 /* ===============================
  TIME
 ================================ */
 $estNow = new DateTime('now', new DateTimeZone('America/New_York'));
-
 $pegDateTimeEST = $estNow->format('Y-m-d H:i:s');
-$pegDateEST     = $estNow->format('Y-m-d'); 
 
 $db->begin_transaction();
 
 try {
 
   /* ===============================
-     1) UPSERT HISTORY
+     1) UPSERT HISTORY (workspace-scoped)
+     IMPORTANT: Requires UNIQUE(workspace_id, peg_point_id, day_date)
   =============================== */
   $stmtHistory = $db->prepare("
     INSERT INTO peg_point_history
-      (peg_point_id, day_date, price, qty, created_at)
-    VALUES (?, ?, ?, ?, ?)
+      (workspace_id, peg_point_id, day_date, price, qty, created_at)
+    VALUES (?, ?, ?, ?, ?, ?)
     ON DUPLICATE KEY UPDATE
       price = VALUES(price),
       qty   = VALUES(qty),
@@ -51,26 +57,31 @@ try {
   ");
 
   /* ===============================
-     2) CHECK LATEST DATE (GLOBAL)
+     2) CHECK LATEST DATE (PER WORKSPACE)
   =============================== */
-  $latestDateRes = $db->query("
+  $latestStmt = $db->prepare("
     SELECT MAX(day_date) AS max_date
     FROM peg_point_history
-  ")->fetch_assoc();
+    WHERE workspace_id = ?
+  ");
+  $latestStmt->bind_param("i", $workspace_id);
+  $latestStmt->execute();
+  $latestDateRes = $latestStmt->get_result()->fetch_assoc();
 
   $latestDate = $latestDateRes['max_date'] ?? null;
   $isLatest   = ($latestDate === null || $date >= $latestDate);
 
-  error_log("📅 SAVE DATE={$date} | LATEST={$latestDate} | isLatest=" . ($isLatest ? 'YES' : 'NO'));
+  error_log("📅 WS={$workspace_id} SAVE DATE={$date} | LATEST={$latestDate} | isLatest=" . ($isLatest ? 'YES' : 'NO'));
 
   /* ===============================
-     3) UPDATE LIVE peg_points
+     3) UPDATE LIVE peg_points (workspace-scoped)
         (price + qty ONLY)
   =============================== */
   $stmtUpdateLive = $db->prepare("
     UPDATE peg_points
     SET price = ?, qty = ?
-    WHERE id = ?
+    WHERE workspace_id = ?
+      AND id = ?
   ");
 
   foreach ($points as $p) {
@@ -83,7 +94,8 @@ try {
 
     // ---- A) SAVE HISTORY ----
     $stmtHistory->bind_param(
-      "isdis",
+      "iisdis",
+      $workspace_id,
       $pegPointId,
       $date,
       $price,
@@ -92,27 +104,25 @@ try {
     );
     $stmtHistory->execute();
 
-    error_log("➡ HISTORY SAVED id={$pegPointId} price={$price} qty={$qty}");
+    error_log("➡ HISTORY SAVED ws={$workspace_id} id={$pegPointId} price={$price} qty={$qty}");
 
     // ---- B) UPDATE LIVE ONLY IF LATEST ----
     if ($isLatest) {
-      $stmtUpdateLive->bind_param(
-        "ddi",
-        $price,
-        $qty,
-        $pegPointId
-      );
+      // ✅ FIXED TYPES: price=double, qty=int, workspace=int, id=int
+      $stmtUpdateLive->bind_param("diii", $price, $qty, $workspace_id, $pegPointId);
       $stmtUpdateLive->execute();
 
-      error_log("✅ LIVE UPDATED id={$pegPointId}");
+      error_log("✅ LIVE UPDATED ws={$workspace_id} id={$pegPointId}");
     }
   }
 
   $db->commit();
 
   echo json_encode([
-    'status'   => 'success',
-    'isLatest' => $isLatest
+    'status'       => 'success',
+    'workspace_id' => $workspace_id,
+    'isLatest'     => $isLatest,
+    'latestDate'   => $latestDate
   ]);
 
 } catch (Throwable $e) {

@@ -9,3 +9,10 @@ export function setUrlConfigId(configId) {
   else url.searchParams.delete("config_id");
   history.replaceState({ config_id: configId || null }, "", url.toString());
 }
+
+export function resetUrlAfterWorkspaceChange() {
+  const url = new URL(window.location.href);
+  url.searchParams.delete("config_id");
+  window.history.replaceState({}, "", url.pathname);
+}
+
