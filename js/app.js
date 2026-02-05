@@ -58,7 +58,7 @@ resetIdleTimer();
 import { setPegSheetInstance } from './tableEditor.js';
 import { getUrlConfigId, setUrlConfigId, resetUrlAfterWorkspaceChange } from './helpers/configURL.js';
 import {initAutosave, scheduleAutosave, cancelAutosave, confirmIfUnsaved, pauseAutosave, resumeAutosave, clearChangeIndicator, markUnsaved, markSaved, markSaving, exitHistoryModeIfNeeded, resumeAutosaveAfterUnloadCancel } from './helpers/autoSave.js';
-import { breadcrumbEditor, breadcrumbHome, breadcrumbHistory, initWorkspaceDropdownUI } from './helpers/format.js';
+import { breadcrumbEditor, breadcrumbHome, breadcrumbHistory, initWorkspaceDropdownUI, loadOOSByCapacity, normCap } from './helpers/format.js';
 import { isValidPegRow, showPegHistoryLoading, updatePegRowAdjustedUI, hexToRgba, buildOOSSummaryEmail } from './helpers/helpers.js';
 import { refreshChart, highlightSelectedPegPoint, createPegChart, createSalesChart, createPegHistoryChart, buildPegPointDatasets, renderPegPointHistoryChart, clearPegPointHistoryChart} from './charts.js';
 import {computePeg, computeBandPricesFromMargin, computeTotalWeight, computeTotalAdjustedPeg, recomputeRowAdjustedPegPrices, computePegFromPoints, computeAdjustedPeg, computePegPointAverages } from './helpers/computation.js';
@@ -297,7 +297,7 @@ let isConfirmingUnsaved = false;
 let idlePaused = false;
 let suppressSelectorEvents = false;
 let isRestoringSelectors = false;
-
+ let oosByCapacity = {};   
 
 
 const INTERFACES_BY_TYPE = {
@@ -507,8 +507,10 @@ function capacityToNumber(cap) {
   return num;
 }
 
+
 // --------- Rendering UI ----------
-function renderCapacityButtons() {
+async function renderCapacityButtons() {
+await loadOOSByCapacity();
   capacityListEl.innerHTML = '';
 
   if (!capacities || capacities.length === 0) {
@@ -559,10 +561,17 @@ if (prices.length) {
   else status += ' (Avg)';
 } else {
 }
+    
+
+const map = window.oosByCapacity || {};
+const capKey = normCap(cap);
+const hasOOS = map[capKey] === 1;
 
 
-      btn.innerHTML =
-        `<span class="label">${cap}</span><span class="meta">${status}</span>`;
+const oosIcon = hasOOS ? ' <span class="cap-oos">❗</span>' : '';
+
+btn.innerHTML =
+  `<span class="label">${cap}${oosIcon}</span><span class="meta">${status}</span>`;
 
 btn.addEventListener('click', async () => {
   const ok = await confirmIfUnsaved(
@@ -730,7 +739,7 @@ if (adjusted !== null) {
   factorSpan.textContent = `Factor: ${(1 + modifier / 100).toFixed(4)}`;
 }
 
-    
+    applyOOSRowStyling();
     pegTableBody.appendChild(tr);
     pegTableBody.appendChild(detailsTr);
 
@@ -884,9 +893,6 @@ function loadSelectedHistoryById(capacityKey, historyId) {
   loadSelectedHistory(capacityKey, idx);
 }
 
-function normCap(cap) {
-  return String(cap || '').trim().toUpperCase();
-}
 
 function normDriveType(v) {
   return String(v || '')
@@ -1134,6 +1140,7 @@ async function loadCapacities() {
     capacities = await api.fetchCapacities();
     // ensure array of unique strings
     capacities = Array.from(new Set(capacities || []));
+    await loadOOSByCapacity();
     renderCapacityButtons();
   } catch (err) {
     ////console.error(err);
@@ -1224,6 +1231,7 @@ async function fetchPegDataFor(
     if (cap === currentCapacity) {
       refreshUI(cap, iface, cond);
     } else {
+      await loadOOSByCapacity();
       renderCapacityButtons();
     }
 
@@ -1628,6 +1636,7 @@ points[idx][field] = val;
 
   updatePegChart(currentCapacity, currentInterfaceKey, currentConditionKey);
   updateSummaryUI(currentCapacity);
+  loadOOSByCapacity();
   renderCapacityButtons();
 });
 
@@ -1682,6 +1691,7 @@ modifierTableBody.addEventListener('input', (e) => {
   if (field === 'amount') val = val === '' ? 0 : Number(val);
   arr[idx][field] = val;
   updateSummaryUI(currentCapacity);
+  loadOOSByCapacity();
   renderCapacityButtons();
 });
 
@@ -2034,7 +2044,7 @@ function refreshUI(cap, iface, cond) {
   // render BOTH — but NEVER let one wipe the other
   renderModifierTable(cap);
   renderSaleModifierTable(cap);
-
+  loadOOSByCapacity();
   renderCapacityButtons();
 }
 
@@ -2177,7 +2187,7 @@ initPrevSelectors();
       }
     })
   );
-
+  await loadOOSByCapacity();
   renderCapacityButtons();
   
   
@@ -3242,6 +3252,8 @@ document
     if (btn.dataset.action === "goHistory") {
       backToHistoryList();
       breadcrumbHistory();
+      const days = Number(document.getElementById('avgPegRange')?.value || 30);
+      await loadAvgPegByCombo(currentCapacity, days);
     }
   cancelAutosave(); 
   });
@@ -3309,3 +3321,27 @@ document.addEventListener("DOMContentLoaded", () => {
   loadWorkspacesUI();
 });
 
+
+
+if (pegTableBody) {
+  pegTableBody.addEventListener("change", (e) => {
+    const target = e.target;
+
+    // Only handle OOS checkbox
+    if (target.matches('input[type="checkbox"][data-field="oos"]')) {
+      const tr = target.closest("tr");
+      if (!tr) return;
+
+      tr.classList.toggle("is-oos", target.checked);
+    }
+  });
+}
+
+function applyOOSRowStyling() {
+  document
+    .querySelectorAll('#pegTableBody input[type="checkbox"][data-field="oos"]')
+    .forEach(cb => {
+      const tr = cb.closest("tr");
+      if (tr) tr.classList.toggle("is-oos", cb.checked);
+    });
+}

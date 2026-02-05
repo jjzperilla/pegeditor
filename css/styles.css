@@ -733,6 +733,7 @@ font-size: 12px;
     max-height: 100vh;
     max-height: 100svh;
     max-height: 100dvh;
+    height: 100%;
     top: 0;
     left: 0;
     width: 260px;
@@ -2296,4 +2297,15 @@ justify-content: center;
     gap: 10px;
     flex-direction: column;
     color: white;
+}
+
+/* PEG row marked as OOS */
+.peg-table tr.is-oos td {
+  background-color: #fde8e8 !important; /* light red */
+}
+
+.cap-oos {
+  color: #dc2626;
+  margin-left: 4px;
+  font-size: 13px;
 }

@@ -178,3 +178,14 @@ window.initMainChart = function(workspaceId) {
       window.mainChartInstance = renderChart(data);
     });
 };
+
+document.getElementById("pegBreadcrumb")?.addEventListener("click", (e) => {
+  // if it navigates, do it, then:
+  const wsId = Number(window.currentWorkspaceId || 0);
+  window.refreshAllCaps?.(wsId);
+});
+
+document.getElementById("homeBtn")?.addEventListener("click", (e) => {
+  const wsId = Number(window.currentWorkspaceId || 0);
+  window.refreshAllCaps?.(wsId);
+});

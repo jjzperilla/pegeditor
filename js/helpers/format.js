@@ -96,3 +96,30 @@ export function initWorkspaceDropdownUI() {
   // initial render
   renderFromSelect();
 }
+
+
+//oos check
+let oosByCapacity = {};
+
+export function normCap(v) {
+  return String(v || "").trim().toUpperCase().replace(/\s+/g, "");
+}
+
+export async function loadOOSByCapacity() {
+  const res = await fetch("api/get_capacity_oos_status.php", { credentials: "same-origin" });
+  const data = await res.json();
+
+  if (!data || data.status !== "ok") {
+    console.warn("Failed to load OOS status", data);
+    oosByCapacity = {};
+    return;
+  }
+
+  const raw = data.oosByCapacity || {};
+ oosByCapacity = {};
+for (const [k, v] of Object.entries(raw)) {
+  oosByCapacity[normCap(k)] = Number(v) === 1 ? 1 : 0;
+}
+
+window.oosByCapacity = oosByCapacity;
+}

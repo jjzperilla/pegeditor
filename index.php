@@ -110,7 +110,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
             For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
           </p>
         </div>
-        <div class="badge">Price Matrix V.3.0</div>
+        <div class="badge">Price Matrix V.3.1</div>
       </header>
  <div id="pegBreadcrumb" class="peg-breadcrumb">
   <button class="crumb-link" data-action="goHome">Home</button>
@@ -710,12 +710,11 @@ $configIdFromUrl = isset($_GET['config_id']) ? (int)$_GET['config_id'] : 0;
 </script>  
 <script>
   window.initialConfigId = <?php echo $configIdFromUrl; ?>;
-  console.log("[INIT] initialConfigId =", window.initialConfigId);
 </script>
   
 <script src="js/auth.js"></script>  
 <script type="module" src="js/api.js"></script>
 <script type="module" src="js/app.js"></script>
-  <script src="js/mainChart.js"></script>
+<script src="js/mainChart.js"></script>
 </body>
 </html>
