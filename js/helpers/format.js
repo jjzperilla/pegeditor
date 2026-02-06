@@ -104,22 +104,39 @@ let oosByCapacity = {};
 export function normCap(v) {
   return String(v || "").trim().toUpperCase().replace(/\s+/g, "");
 }
+function getActiveWorkspaceId() {
+  const sel = document.getElementById("workspaceSelect");
+  const id = sel ? parseInt(sel.value, 10) : 0;
+  return Number.isFinite(id) ? id : 0;
+}
 
 export async function loadOOSByCapacity() {
-  const res = await fetch("api/get_capacity_oos_status.php", { credentials: "same-origin" });
+  const wsId = getActiveWorkspaceId();
+
+  if (!wsId) {
+    console.warn("No workspace selected; skipping OOS load");
+    window.oosByCapacity = {};
+    return;
+  }
+
+  const res = await fetch(`api/get_capacity_oos_status.php?workspace_id=${encodeURIComponent(wsId)}`, {
+    credentials: "same-origin"
+  });
+
   const data = await res.json();
 
   if (!data || data.status !== "ok") {
     console.warn("Failed to load OOS status", data);
-    oosByCapacity = {};
+    window.oosByCapacity = {};
     return;
   }
 
   const raw = data.oosByCapacity || {};
- oosByCapacity = {};
-for (const [k, v] of Object.entries(raw)) {
-  oosByCapacity[normCap(k)] = Number(v) === 1 ? 1 : 0;
-}
+  const map = {};
+  for (const [k, v] of Object.entries(raw)) {
+    map[normCap(k)] = Number(v) === 1 ? 1 : 0;
+  }
 
-window.oosByCapacity = oosByCapacity;
+  window.oosByCapacity = map;
+  console.log("OOS MAP LOADED (WS " + wsId + "):", window.oosByCapacity);
 }
