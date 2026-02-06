@@ -635,7 +635,7 @@ function defaultSalesData() {
 
 function renderPegTable(cap, iface, cond) {
   pegTableBody.innerHTML = '';
-
+  
   const points =
     pegDataState[cap]?.points ?? [];
 
@@ -739,7 +739,7 @@ if (adjusted !== null) {
   factorSpan.textContent = `Factor: ${(1 + modifier / 100).toFixed(4)}`;
 }
 
-    applyOOSRowStyling();
+    
     pegTableBody.appendChild(tr);
     pegTableBody.appendChild(detailsTr);
 
@@ -765,6 +765,7 @@ if (adjusted !== null) {
     });
 
   });
+  applyOOSRowStyling();
 }
 
 
@@ -3323,17 +3324,17 @@ document.addEventListener("DOMContentLoaded", () => {
 
 
 
-if (pegTableBody) {
+if (pegTableBody && !pegTableBody.dataset.oosBound) {
+  pegTableBody.dataset.oosBound = "1";
+
   pegTableBody.addEventListener("change", (e) => {
     const target = e.target;
+    if (!target.matches('input[type="checkbox"][data-field="oos"]')) return;
 
-    // Only handle OOS checkbox
-    if (target.matches('input[type="checkbox"][data-field="oos"]')) {
-      const tr = target.closest("tr");
-      if (!tr) return;
+    const tr = target.closest("tr");
+    if (!tr) return;
 
-      tr.classList.toggle("is-oos", target.checked);
-    }
+    tr.classList.toggle("is-oos", target.checked);
   });
 }
 
