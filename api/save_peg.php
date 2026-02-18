@@ -14,6 +14,8 @@ require __DIR__ . '/auth.php';
 requireAuth();
 
 require __DIR__ . '/db.php';
+require __DIR__ . "/role.php";
+requireEditor($db);
 
 mysqli_report(MYSQLI_REPORT_ERROR | MYSQLI_REPORT_STRICT);
 
@@ -86,8 +88,8 @@ $pegDateEST     = $estNow->format('Y-m-d');
 /* ===============================
    RESPONSE DEFAULTS
 ================================ */
-$emailSent     = false;
-$emailError    = null;
+$userSent     = false;
+$userError    = null;
 $newOosCount   = 0;
 $debugOosItems = [];
 $debugNotes    = [];

@@ -25,7 +25,33 @@ if ($workspace_id <= 0) {
   exit;
 }
 
-// verify membership + get role + workspace name
+$isAdmin = ($user_id === 2);
+
+if ($isAdmin) {
+  // ✅ Admin can access any workspace that exists
+  $ws = $db->prepare("SELECT name FROM workspaces WHERE id = ? LIMIT 1");
+  $ws->bind_param("i", $workspace_id);
+  $ws->execute();
+  $wrow = $ws->get_result()->fetch_assoc();
+
+  if (!$wrow) {
+    http_response_code(404);
+    echo json_encode(["status" => "error", "message" => "Workspace not found"]);
+    exit;
+  }
+
+  $_SESSION['workspace_id'] = $workspace_id;
+
+  echo json_encode([
+    "status" => "ok",
+    "workspace_id" => $workspace_id,
+    "workspace_name" => (string)$wrow["name"],
+    "role" => "admin"
+  ]);
+  exit;
+}
+
+// ✅ Non-admin: verify membership + get role + workspace name
 $chk = $db->prepare("
   SELECT wu.role, w.name
   FROM workspace_users wu

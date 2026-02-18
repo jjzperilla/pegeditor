@@ -72,7 +72,7 @@ export function hexToRgba(hex, alpha) {
 }
 
 
-export function buildOOSSummaryEmail({ cap, iface, cond, driveType, points }) {
+export function buildOOSSummaryuser({ cap, iface, cond, driveType, points }) {
   const oosPoints = (points || []).filter(p => p && (p.oos === 1 || p.oos === true));
 
   if (!oosPoints.length) return null;
@@ -93,3 +93,35 @@ export function buildOOSSummaryEmail({ cap, iface, cond, driveType, points }) {
 
   return { subject, body: bodyLines.join('\n') };
 }
+
+
+export function updateAddConfigButtonVisibility() {
+  const btnHDD = document.getElementById("addNewPegConfigBtn");
+  const btnSSD = document.getElementById("addNewPegConfigBtnSSD");
+
+  if (!btnHDD || !btnSSD) return;
+
+  const type = driveTypeSelect.value;
+
+  btnHDD.style.display = (type === "HDD") ? "inline-block" : "none";
+  btnSSD.style.display = (type === "SSD") ? "inline-block" : "none";
+}
+
+export function toggleCapacitySection(openId) {
+  const sections = [
+    "capacityControls",
+    "capacityControlsSSD"
+  ];
+
+  sections.forEach(id => {
+    const el = document.getElementById(id);
+    if (!el) return;
+
+    if (id === openId) {
+      el.classList.remove("collapsed");
+    } else {
+      el.classList.add("collapsed");
+    }
+  });
+}
+

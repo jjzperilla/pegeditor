@@ -56,15 +56,18 @@ window.api = {
     });
   },
 
-  /* -------------------------------
+/* -------------------------------
      CAPACITIES
-  -------------------------------- */
-  async saveCapacity(capacity) {
-    return safeFetch("./api/save_capacity.php", {
-      method: "POST",
-      body: JSON.stringify({ capacity })
-    });
-  },
+-------------------------------- */
+async saveCapacity(capacity, driveTypeId = 1) {
+  return safeFetch("./api/save_capacity.php", {
+    method: "POST",
+    body: JSON.stringify({
+      capacity,
+      drive_type_id: driveTypeId // 1=HDD, 2=SSD
+    })
+  });
+},
 
   /* -------------------------------
      LOAD PEG BY CONFIG ID
@@ -116,12 +119,19 @@ window.api = {
       body: JSON.stringify(payload)
     });
   },
-
+  /* -------------------------------
+     ROLES
+  -------------------------------- */ 
+async myRole() {
+  return safeFetch("./api/my_role.php");
+},
   /* -------------------------------
      MODERN API BRIDGE (READ-ONLY)
      New code may import directly instead
   -------------------------------- */
   fetchPegData: ModularAPI.fetchPegData,
   loadHistory: ModularAPI.loadHistory,
-  fetchCapacities: ModularAPI.fetchCapacities
+  loadSSDHistory: ModularAPI.loadSSDHistory,
+  fetchCapacities: ModularAPI.fetchCapacities,
+  fetchCapacitiesSSD: ModularAPI.fetchCapacitiesSSD
 };

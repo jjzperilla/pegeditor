@@ -59,7 +59,7 @@ import { setPegSheetInstance } from './tableEditor.js';
 import { getUrlConfigId, setUrlConfigId, resetUrlAfterWorkspaceChange } from './helpers/configURL.js';
 import {initAutosave, scheduleAutosave, cancelAutosave, confirmIfUnsaved, pauseAutosave, resumeAutosave, clearChangeIndicator, markUnsaved, markSaved, markSaving, exitHistoryModeIfNeeded, resumeAutosaveAfterUnloadCancel } from './helpers/autoSave.js';
 import { breadcrumbEditor, breadcrumbHome, breadcrumbHistory, initWorkspaceDropdownUI, loadOOSByCapacity, normCap } from './helpers/format.js';
-import { isValidPegRow, showPegHistoryLoading, updatePegRowAdjustedUI, hexToRgba, buildOOSSummaryEmail } from './helpers/helpers.js';
+import {  updateAddConfigButtonVisibility, isValidPegRow, showPegHistoryLoading, updatePegRowAdjustedUI, hexToRgba, buildOOSSummaryuser } from './helpers/helpers.js';
 import { refreshChart, highlightSelectedPegPoint, createPegChart, createSalesChart, createPegHistoryChart, buildPegPointDatasets, renderPegPointHistoryChart, clearPegPointHistoryChart} from './charts.js';
 import {computePeg, computeBandPricesFromMargin, computeTotalWeight, computeTotalAdjustedPeg, recomputeRowAdjustedPegPrices, computePegFromPoints, computeAdjustedPeg, computePegPointAverages } from './helpers/computation.js';
 import {getEffectiveDate, getPreviousWeekDates, normalizeSalesToPreviousWeek, formatSaveTime, normalizeDate} from './helpers/date.js';
@@ -77,6 +77,7 @@ import {
   showPegHistoryFromDatabase
   
 } from './ui/charts/pegCharts.controller.js';
+import { setUserRoleUI, updateUserBadge, applyRoleUI } from './ui/role.js';
 import { setPegChartsContext } from './ui/charts/pegCharts.controller.js';
 import { initConfirmModal, initAlertModal } from "./ui/modals.js";
 
@@ -184,8 +185,7 @@ async function loadPegForDate(selectedDate) {
 
 // --------- DOM refs ----------
 const capacityListEl = document.getElementById('capacityList');
-
-
+const capacitySSDListEl = document.getElementById("capacitySSDList")
 
 const salesTableBody = document.getElementById('salesTableBody');
 const pegTableBody = document.getElementById('pegTableBody');
@@ -206,6 +206,9 @@ const clearPegSelectBtn = document.getElementById('clearPegSelectBtn');
 const addModifierBtn = document.getElementById('addModifierBtn');
 const addSaleModifierBtn = document.getElementById('addSaleModifierBtn');
 const addNewCapacityBtn = document.getElementById('addNewCapacityBtn');
+const addNewSSDCapacityBtn = document.getElementById('addNewSSDCapacityBtn');
+
+
 const newCapacityInput = document.getElementById('newCapacityInput');
 
 const savePegBtn = document.getElementById('savePegBtn');
@@ -272,6 +275,7 @@ const filterCondition   = document.getElementById('filterCondition');
 let currentConfigId = null;
 let prevViewMode = false;
 let capacities = [];
+let capacitiesSSD = [];
 let currentCapacity = null;
 let currentInterfaceKey = interfaceSelect.value || 'sata';
 let currentConditionKey = conditionSelect.value || 'new';
@@ -298,6 +302,8 @@ let idlePaused = false;
 let suppressSelectorEvents = false;
 let isRestoringSelectors = false;
  let oosByCapacity = {};   
+let oosByCapacityHDD = {};
+let oosByCapacitySSD = {};
 
 
 const INTERFACES_BY_TYPE = {
@@ -308,7 +314,7 @@ const INTERFACES_BY_TYPE = {
 
 const state = getCurrentPegBlock();
 
-const emailDraft = buildOOSSummaryEmail({
+const userDraft = buildOOSSummaryuser({
   cap: currentCapacity,
   iface: currentInterfaceKey,
   cond: currentConditionKey,
@@ -508,90 +514,108 @@ function capacityToNumber(cap) {
 }
 
 
-// --------- Rendering UI ----------
-async function renderCapacityButtons() {
-await loadOOSByCapacity();
-  capacityListEl.innerHTML = '';
+function setActiveDriveTab(type) {
+  if (!type) return;
 
-  if (!capacities || capacities.length === 0) {
-    capacityListEl.innerHTML =
-      `<span style="color: #9ca3af; font-size: 13px;">No capacities found.</span>`;
+  driveTypeSelect.value = type;  
+  updateInterfaceOptions();         
+  updateAddConfigButtonVisibility?.();
+  updateSettingNames?.();
+}
+
+// --------- Rendering Capacity UI ----------
+function renderCapacityList(listEl, caps, map = {}, driveType = "HDD") {
+  if (!listEl) return;
+
+  listEl.innerHTML = "";
+
+  if (!caps || !caps.length) {
+    listEl.innerHTML = `<span style="color:#9ca3af;font-size:13px;">No capacities found.</span>`;
     return;
   }
 
-  // SORT LOW → HIGH (GB-normalized)
-  [...capacities]
+  [...caps]
     .sort((a, b) => capacityToNumber(a) - capacityToNumber(b))
     .forEach(cap => {
-      const btn = document.createElement('button');
-      btn.className = 'capacity-btn';
-      btn.id = `cap-btn-${cap}`;
+      const btn = document.createElement("button");
+      btn.className = "capacity-btn";
       btn.dataset.capacity = cap;
 
-      // calculate status using current in-memory peg (if any)
-let status = 'N/A';
+      let status = "N/A";
 
-const history = pegHistoryByCapacity[cap] || [];
-
+const entry = pegHistoryByCapacity[cap];
+const history = Array.isArray(entry)
+  ? entry
+  : [
+      ...(entry?.hdd || []),
+      ...(entry?.ssd || [])
+    ];
 
 const prices = history
-  .map(h => {
-   return Number(h.adjusted_price);
-  })
-  .filter(v => {
-    const ok = Number.isFinite(v);
-    if (!ok) {
-    }
-    return ok;
-  });
-
+  .map(h => Number(h.adjusted_price))
+  .filter(Number.isFinite);
 
 if (prices.length) {
   const sum = prices.reduce((s, v) => s + v, 0);
   const avg = sum / prices.length;
-
   const min = Math.min(...prices);
   const max = Math.max(...prices);
   const mid = (min + max) / 2;
 
   status = formatMoney(avg);
-
-  if (avg > mid) status += ' (High)';
-  else if (avg < mid) status += ' (Low)';
-  else status += ' (Avg)';
-} else {
+  if (avg > mid) status += " (High)";
+  else if (avg < mid) status += " (Low)";
+  else status += " (Avg)";
 }
-    
+      
+    const key = normCap(cap);
+    console.log("CAP", cap, "KEY", key, "VAL", map[key]);
+    const hasOOS = map[key] === 1;
+      const oosIcon = hasOOS ? ' <span class="cap-oos">❗</span>' : "";
 
-const map = window.oosByCapacity || {};
-const capKey = normCap(cap);
-const hasOOS = map[capKey] === 1;
+      btn.innerHTML = `<span class="label">${cap}${oosIcon}</span><span class="meta">${status}</span>`;
 
-
-const oosIcon = hasOOS ? ' <span class="cap-oos">❗</span>' : '';
-
-btn.innerHTML =
-  `<span class="label">${cap}${oosIcon}</span><span class="meta">${status}</span>`;
-
-btn.addEventListener('click', async () => {
+      btn.addEventListener("click", async () => {
   const ok = await confirmIfUnsaved(
     "You have unsaved changes. Switching capacity will discard them. Continue?"
   );
   if (!ok) return;
+
+  setActiveDriveTab(driveType); // ✅ force HDD/SSD based on list clicked
+
   setUrlConfigId(null);
   breadcrumbHistory();
   cancelAutosave();
   stopPegLock();
-  allCapacityChart.style.display ="none";
-  settingNamesContainer.style.display ="none";  
+  allCapacityChart.style.display = "none";
+  settingNamesContainer.style.display = "none";
   hasUnsavedChanges = false;
   clearChangeIndicator();
+
   fetchAndSelectPeg(cap);
-        
 });
-      capacityListEl.appendChild(btn);
+
+      listEl.appendChild(btn);
     });
 }
+
+
+
+async function renderCapacityButtons() {
+  const [hddMap, ssdMap] = await Promise.all([
+    loadOOSByCapacity(1),
+    loadOOSByCapacity(2)
+  ]);
+
+  window.oosByCapacityHDD = hddMap;
+  window.oosByCapacitySSD = ssdMap;
+
+renderCapacityList(capacityListEl, capacities, hddMap, "HDD");
+renderCapacityList(capacitySSDListEl, capacitiesSSD, ssdMap, "SSD");
+}
+
+
+
 
 
 function renderSalesTable(cap) {
@@ -886,13 +910,24 @@ function renderSaleModifierTable(cap) {
   });
 }
 
-function loadSelectedHistoryById(capacityKey, historyId) {
-  const history = pegHistoryByCapacity[capacityKey] || [];
+async function loadSelectedHistoryById(capacityKey, historyId) {
+  const entry = pegHistoryByCapacity[capacityKey];
+
+  const history = Array.isArray(entry)
+    ? entry
+    : [
+        ...(entry?.hdd || []),
+        ...(entry?.ssd || [])
+      ];
+
   const idx = history.findIndex(h => Number(h.id) === Number(historyId));
   if (idx === -1) return;
 
-  loadSelectedHistory(capacityKey, idx);
+  await loadSelectedHistory(capacityKey, idx, history); // pass the flat array
 }
+
+
+
 
 
 function normDriveType(v) {
@@ -906,7 +941,17 @@ function normDriveType(v) {
 function renderPegHistoryTable(cap) {
   pegHistoryTableBody.innerHTML = '';
 
-  const allHistory = pegHistoryByCapacity[cap] || [];
+  const entry = pegHistoryByCapacity[cap];
+
+  // Backward compatible:
+  // - old: array
+  // - new: { hdd: [], ssd: [] }
+  const allHistory = Array.isArray(entry)
+    ? entry
+    : [
+        ...(entry?.hdd || []),
+        ...(entry?.ssd || [])
+      ];
 
   const driveFilter = filterDriveType?.value || '';
   const ifaceFilter = filterInterface?.value || '';
@@ -930,6 +975,7 @@ function renderPegHistoryTable(cap) {
 
     return true;
   });
+
 
   if (!history.length) {
     pegHistoryTableBody.innerHTML = `
@@ -1136,18 +1182,52 @@ function updateSummary(cap) {
 
 
 // --------- Data loading & sync ----------
-async function loadCapacities() {
+async function loadAllCapacities() {
+  capacityListEl.innerHTML = '';
+
   try {
-    capacities = await api.fetchCapacities();
-    // ensure array of unique strings
-    capacities = Array.from(new Set(capacities || []));
-    await loadOOSByCapacity();
+    const results = await Promise.allSettled([
+      api.fetchCapacities(),    // HDD
+      api.fetchCapacitiesSSD()   // SSD
+    ]);
+
+    const hddRes = results[0];
+    const ssdRes = results[1];
+
+    console.log("HDD result:", hddRes);
+    console.log("SSD result:", ssdRes);
+    
+    if (hddRes.status === "fulfilled") {
+      capacities = Array.from(new Set(hddRes.value || []));
+    } else {
+      capacities = [];
+      console.warn("HDD capacities failed:", hddRes.reason);
+    }
+
+    if (ssdRes.status === "fulfilled") {
+      capacitiesSSD = Array.from(new Set(ssdRes.value || []));
+    } else {
+      capacitiesSSD = [];
+      console.warn("SSD capacities failed:", ssdRes.reason);
+    }
+
+    // If both are empty, show message
+    if ((!capacities || capacities.length === 0) && (!capacitiesSSD || capacitiesSSD.length === 0)) {
+      capacityListEl.innerHTML =
+        `<span style="color:#9ca3af;font-size:13px;">No capacities found.</span>`;
+      return;
+    }
+
+    await loadOOSByCapacity(); // keep this if it doesn't require drive_type_id
     renderCapacityButtons();
+
   } catch (err) {
-    ////console.error(err);
-    capacityListEl.innerHTML = `<span style="color: #f87171; font-size: 13px;">Error: ${err.message}</span>`;
+    console.warn(err);
+    capacityListEl.innerHTML =
+      `<span style="color:#f87171;font-size:13px;">Error: ${err.message}</span>`;
   }
 }
+
 
 /**
  * Fetch peg data from the server for specific capacity/interface/condition
@@ -1439,11 +1519,23 @@ startPegLock(resolvedConfigId);
 
       
       // after successful save   
-const historyRes = await api.loadHistory(currentCapacity);
-pegHistoryByCapacity[currentCapacity] = historyRes.history || [];
+const [hddHistoryRes, ssdHistoryRes] = await Promise.all([
+  api.loadHistory(currentCapacity, 1),   // HDD
+  api.loadSSDHistory(currentCapacity)    // SSD
+]);
+
+pegHistoryByCapacity[currentCapacity] = {
+  hdd: hddHistoryRes.history || [],
+  ssd: ssdHistoryRes.history || []
+};
 renderPegHistoryTable(currentCapacity);
 //get MOST RECENT snapshot
-const latest = pegHistoryByCapacity[currentCapacity]?.[0];
+const entry = pegHistoryByCapacity[currentCapacity];
+const flat = Array.isArray(entry)
+  ? entry
+  : [ ...(entry?.hdd || []), ...(entry?.ssd || []) ];
+
+const latest = flat[0];
 
 if (latest) {
   pegDataState[currentCapacity].adjusted_price =
@@ -1509,15 +1601,22 @@ await loadAvgPegByCombo(currentCapacity, days);
 
 showPegHistoryLoading();  
   // load history from API
-const result = await api.loadHistory(capacityKey);
-pegHistoryByCapacity[capacityKey] = result.history || [];
+const [hddResult, ssdResult] = await Promise.all([
+  api.loadHistory(capacityKey, 1),   // HDD
+  api.loadSSDHistory(capacityKey)    // SSD
+]);
+
+pegHistoryByCapacity[capacityKey] = {
+  hdd: hddResult.history || [],
+  ssd: ssdResult.history || []
+};
 pegNameInput.value = "";
 
 renderPegHistoryTable(capacityKey);
 }
 
 
-async function loadSelectedHistory(capacityKey, historyIndex) {
+async function loadSelectedHistory(capacityKey, historyIndex, flatHistory = null) {
   breadcrumbEditor();
   cancelAutosave();
   showPegPointHistorySection();
@@ -1529,13 +1628,21 @@ async function loadSelectedHistory(capacityKey, historyIndex) {
   showEditor();
   updateAvgPegCardTitle(capacityKey);
 
-  const history = pegHistoryByCapacity[capacityKey] || [];
+  const entry = pegHistoryByCapacity[capacityKey];
+  const history = flatHistory || (
+    Array.isArray(entry)
+      ? entry
+      : [
+          ...(entry?.hdd || []),
+          ...(entry?.ssd || [])
+        ]
+  );
+
   const selected = history[historyIndex];
   if (!selected) {
     isViewingHistory = false;
     return;
   }
-
   pegDataState[capacityKey] = pegDataState[capacityKey] || {
     points: [],
     modifiers: [],
@@ -1863,7 +1970,7 @@ addNewCapacityBtn.addEventListener('click', async () => {
 
   if (result.status === "success") {
       appAlert("Capacity added!");
-      await loadCapacities(); // refresh list
+      await loadAllCapacities(); // refresh list
       newCapacityInput.value = "";
   } 
   else if (result.status === "exists") {
@@ -1873,6 +1980,26 @@ addNewCapacityBtn.addEventListener('click', async () => {
       appAlert("Error: " + result.message);
   }
 });
+
+// SSD capacity add
+addNewSSDCapacityBtn.addEventListener("click", async () => {
+  const newCap = (newSSDCapacityInput.value || "").trim();
+  if (!newCap) return appAlert("Please enter an SSD capacity label (e.g., 960GB).");
+
+  const result = await api.saveCapacity(newCap, 2); // SSD = 2
+
+  if (result.status === "success") {
+    appAlert("SSD Capacity added!");
+    await loadAllCapacities(); // should fetch only drive_type_id=2
+    newSSDCapacityInput.value = "";
+  } else if (result.status === "exists") {
+    appAlert("SSD Capacity already exists in database.");
+  } else {
+    appAlert("Error: " + (result.message || "Unknown error"));
+  }
+});
+
+
 
 // history view button
 document.getElementById('pegHistoryTableBody').addEventListener('click', async (e) => {
@@ -1914,9 +2041,17 @@ if (e.target.dataset.action === 'viewHistory') {
       const historyId = Number(e.target.dataset.id);
       if (!currentCapacity) return;
 
-      const historyList = pegHistoryByCapacity[currentCapacity] || [];
-      const item = historyList.find(h => Number(h.id) === historyId);
-      if (!item) return;
+      const entry = pegHistoryByCapacity[currentCapacity];
+
+const historyList = Array.isArray(entry)
+  ? entry
+  : [
+      ...(entry?.hdd || []),
+      ...(entry?.ssd || [])
+    ];
+
+const item = historyList.find(h => Number(h.id) === historyId);
+if (!item) return;
 
       if (!(await appConfirm(`Delete this history entry saved on ${item.saved_at}?`,"Delete History"))) return;
 
@@ -1926,8 +2061,16 @@ if (e.target.dataset.action === 'viewHistory') {
   appAlert("History deleted.");
 
   // Reload history
-const res = await api.loadHistory(currentCapacity);
-pegHistoryByCapacity[currentCapacity] = res.history || [];
+const [hddRes, ssdRes] = await Promise.all([
+  api.loadHistory(currentCapacity, 1),   // HDD
+  api.loadSSDHistory(currentCapacity)    // SSD
+]);
+
+pegHistoryByCapacity[currentCapacity] = {
+  hdd: hddRes.history || [],
+  ssd: ssdRes.history || []
+};
+
 
   // RESET STATE AFTER DELETE
   window.currentConfigId = null;
@@ -1987,15 +2130,19 @@ savePegBtn.addEventListener('click', saveCurrentPegData);
 
 
 function getExistingConfigMap(capacity) {
-  const history = pegHistoryByCapacity[capacity] || [];
-  const map = {};
+  const entry = pegHistoryByCapacity[capacity];
+  const history = Array.isArray(entry)
+    ? entry
+    : [
+        ...(entry?.hdd || []),
+        ...(entry?.ssd || [])
+      ];
 
+  const map = {};
   history.forEach(h => {
-    const key =
-      `${norm(h.drive_type)}|${norm(h.interface)}|${norm(h.condition_type)}`;
+    const key = `${norm(h.drive_type)}|${norm(h.interface)}|${norm(h.condition_type)}`;
     map[key] = Number(h.config_id);
   });
-
   return map;
 }
 
@@ -2115,9 +2262,14 @@ function generateSimpleHistory(base) {
   return arr;
 }
 
-
 // --------- Init
 async function init() {
+  const roleRes = await api.myRole();
+  setUserRoleUI({ username: roleRes.username, role: roleRes.role });
+  window.APP_ROLE = roleRes?.role || "viewer";
+  applyRoleUI(window.APP_ROLE);
+  updateUserBadge(roleRes);
+  
   function initPrevSelectors() {
   driveTypeSelect.dataset.prev = driveTypeSelect.value;
   interfaceSelect.dataset.prev = interfaceSelect.value;
@@ -2132,7 +2284,7 @@ initPrevSelectors();
   salesChart = createSalesChart({ labels: [''], salePrice: [0], marketPrice: [0], volume: [0] });
   pegHistoryChart = createPegHistoryChart();
 
-  await loadCapacities();
+  await loadAllCapacities();
 
   setPegChartsContext({
   salesChart,
@@ -2178,16 +2330,26 @@ initPrevSelectors();
 });
 
 
-  await Promise.all(
-    capacities.map(async cap => {
-      try {
-        const res = await api.loadHistory(cap);
-        pegHistoryByCapacity[cap] = res.history || [];
-      } catch {
-        pegHistoryByCapacity[cap] = [];
-      }
-    })
-  );
+const allCaps = Array.from(new Set([...(capacities || []), ...(capacitiesSSD || [])]));
+
+await Promise.all(
+  allCaps.map(async cap => {
+    try {
+      const [hddRes, ssdRes] = await Promise.all([
+        api.loadHistory(cap, 1),     // HDD history for this cap (may be empty)
+        api.loadSSDHistory(cap)      // SSD history for this cap (may be empty)
+      ]);
+
+      pegHistoryByCapacity[cap] = {
+        hdd: hddRes.history || [],
+        ssd: ssdRes.history || []
+      };
+    } catch {
+      pegHistoryByCapacity[cap] = { hdd: [], ssd: [] };
+    }
+  })
+);
+  updateAddConfigButtonVisibility();
   await loadOOSByCapacity();
   renderCapacityButtons();
   
@@ -2231,10 +2393,16 @@ window._pegEditor = {
 
 
 
-function findFirstMissingCombo(capacity) {
-  const history = pegHistoryByCapacity[capacity] || [];
+function findFirstMissingCombo(capacity, driveTypeFilter = null) {
+  const entry = pegHistoryByCapacity[capacity];
 
-  // Build existing combo set: drive|interface|condition
+  const history = Array.isArray(entry)
+    ? entry
+    : [
+        ...(entry?.hdd || []),
+        ...(entry?.ssd || [])
+      ];
+
   const existing = new Set(
     history.map(h =>
       `${String(h.drive_type).toLowerCase()}|` +
@@ -2243,7 +2411,11 @@ function findFirstMissingCombo(capacity) {
     )
   );
 
-  for (const driveType of DRIVE_TYPES) {
+  const driveTypes = driveTypeFilter
+    ? [driveTypeFilter.toLowerCase()]
+    : DRIVE_TYPES;
+
+  for (const driveType of driveTypes) {
     const interfaces =
       driveType === "ssd"
         ? SSD_INTERFACES
@@ -2252,10 +2424,9 @@ function findFirstMissingCombo(capacity) {
     for (const iface of interfaces) {
       for (const cond of ALL_CONDITIONS) {
         const key = `${driveType}|${iface}|${cond}`;
-
         if (!existing.has(key)) {
           return {
-            drive_type: driveType.toUpperCase(), // keep UI consistent
+            drive_type: driveType.toUpperCase(),
             interface: iface,
             condition: cond
           };
@@ -2264,60 +2435,70 @@ function findFirstMissingCombo(capacity) {
     }
   }
 
-  // All combinations already exist
   return null;
 }
 
 
-addNewPegConfigBtn.addEventListener('click', () => {
-  showEditor();
-
-  if (!currentCapacity) {
-    appAlert('Select a capacity first');
-    return;
-  }
-clearPegPointHistoryChart();
-  const missing = findFirstMissingCombo(currentCapacity);
-
-  if (!missing) {
-    // ALL EXIST
-    document.getElementById('allConditionsModal').classList.remove('hidden');
-    return;
-  }
-
-  // CREATE MODE
-  isCreatingNewConfig = true;
-  window.currentConfigId = null;
 
 
-  driveTypeSelect.value = missing.drive_type;
-  updateInterfaceOptions(); // ensure interface list matches drive type
+document.querySelectorAll('[data-drive]').forEach(btn => {
+  btn.addEventListener('click', async (e) => {
 
-  currentInterfaceKey = missing.interface;
-  currentConditionKey = missing.condition;
+    const targetDriveType = e.currentTarget.dataset.drive; // HDD or SSD
 
-  interfaceSelect.value = missing.interface;
-  conditionSelect.value = missing.condition;
+    showEditor();
 
-  // Empty editor
-  pegDataState[currentCapacity] = {
-    points: [],
-    modifiers: [],
-    saleModifiers: [],
-    sales: defaultSalesData(),
-    marginPercent: pegDataState[currentCapacity]?.marginPercent ?? 50,
-    config_id: null
-  };
+    if (!currentCapacity) {
+      appAlert('Select a capacity first');
+      return;
+    }
 
-  pegNameContainer.style.display = "flex";
-  pegNameInput.value = '';
-  mainEditorLayout.style.display = 'grid';
-  pegDataHistoryCard.style.display = 'none';
-  avgPegCard.style.display = 'none';
-  savePegBtn.style.display = 'inline-block';
+    clearPegPointHistoryChart();
 
-  refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey);
+    // 🔥 NEW: find missing combo only for this drive type
+    const missing = findFirstMissingCombo(currentCapacity, targetDriveType);
+
+    if (!missing) {
+      document.getElementById('allConditionsModal').classList.remove('hidden');
+      return;
+    }
+
+    isCreatingNewConfig = true;
+    window.currentConfigId = null;
+    currentConfigId = null;
+
+    driveTypeSelect.value = targetDriveType;
+    updateInterfaceOptions();
+
+    currentInterfaceKey = missing.interface;
+    currentConditionKey = missing.condition;
+
+    interfaceSelect.value = missing.interface;
+    conditionSelect.value = missing.condition;
+
+    pegDataState[currentCapacity] = {
+      points: [],
+      modifiers: [],
+      saleModifiers: [],
+      sales: defaultSalesData(),
+      marginPercent: pegDataState[currentCapacity]?.marginPercent ?? 50,
+      adjusted_price: 0,
+      config_id: null
+    };
+
+    pegNameContainer.style.display = "flex";
+    pegNameInput.value = '';
+    mainEditorLayout.style.display = 'grid';
+    pegDataHistoryCard.style.display = 'none';
+    avgPegCard.style.display = 'none';
+    savePegBtn.style.display = 'inline-block';
+
+    refreshUI(currentCapacity, currentInterfaceKey, currentConditionKey);
+    updateSettingNames();
+  });
 });
+
+
 
 
 document
@@ -2327,7 +2508,13 @@ document
   });
 
 function findConfigIdByCombo(capacity, driveType, iface, condition) {
-  const history = pegHistoryByCapacity[capacity] || [];
+  const entry = pegHistoryByCapacity[capacity];
+  const history = Array.isArray(entry)
+    ? entry
+    : [
+        ...(entry?.hdd || []),
+        ...(entry?.ssd || [])
+      ];
 
   const found = history.find(h =>
     String(h.drive_type).toUpperCase() === String(driveType).toUpperCase() &&
@@ -2337,6 +2524,7 @@ function findConfigIdByCombo(capacity, driveType, iface, condition) {
 
   return found ? Number(found.config_id) : null;
 }
+
 
 function showAllConditionsModal() {
   const modal = document.getElementById('allConditionsModal');
@@ -2464,7 +2652,7 @@ driveTypeSelect.addEventListener("change", async () => {
   hasUnsavedChanges = false;
   clearChangeIndicator();
   isViewingHistory = false;
-
+  updateAddConfigButtonVisibility();
   window.currentConfigId = null;
   isCreatingNewConfig = false;
   delete pegDataState[currentCapacity];
@@ -2997,13 +3185,21 @@ async function backToHistoryList() {
   pegDataHistoryCard.style.display = "block";
 
   // refresh history list (so user sees latest save)
-  try {
-    const res = await api.loadHistory(currentCapacity);
-    pegHistoryByCapacity[currentCapacity] = res.history || [];
-    renderPegHistoryTable(currentCapacity);
-  } catch (e) {
-    // ignore - UI still works even if refresh fails
-  }
+ try {
+  const [hddRes, ssdRes] = await Promise.all([
+    api.loadHistory(currentCapacity, 1),   // HDD
+    api.loadSSDHistory(currentCapacity)    // SSD
+  ]);
+
+  pegHistoryByCapacity[currentCapacity] = {
+    hdd: hddRes.history || [],
+    ssd: ssdRes.history || []
+  };
+
+  renderPegHistoryTable(currentCapacity); // update this to read .hdd/.ssd
+} catch (e) {
+  // ignore - UI still works even if refresh fails
+}
 
   // optional: reset peg point chart section
   clearPegPointHistoryChart?.();
@@ -3217,8 +3413,15 @@ window.addEventListener("peg:refreshRequested", async () => {
     driveTypeSelect.value
   );
 
-  const h = await api.loadHistory(currentCapacity);
-  pegHistoryByCapacity[currentCapacity] = h.history || [];
+ const [hddRes, ssdRes] = await Promise.all([
+  api.loadHistory(currentCapacity, 1),   // HDD
+  api.loadSSDHistory(currentCapacity)    // SSD
+]);
+
+pegHistoryByCapacity[currentCapacity] = {
+  hdd: hddRes.history || [],
+  ssd: ssdRes.history || []
+};
   renderPegHistoryTable(currentCapacity);
 
   loadPegPointHistory();
@@ -3346,3 +3549,55 @@ function applyOOSRowStyling() {
       if (tr) tr.classList.toggle("is-oos", cb.checked);
     });
 }
+
+function toggleSidebarSection(openId) {
+  document.querySelectorAll(".sidebar-section").forEach(section => {
+    if (section.id === openId) {
+      section.classList.remove("collapsed");
+    } else {
+      section.classList.add("collapsed");
+    }
+  });
+}
+
+document.addEventListener("click", (e) => {
+  const btn = e.target.closest(".section-header[data-toggle]");
+  if (!btn) return;
+
+  const targetId = btn.dataset.toggle;
+
+
+  const isCapacityToggle =
+    targetId === "capacityControls" ||
+    targetId === "capacityControlsSSD";
+
+  if (!isCapacityToggle) return;
+
+  // prevent other generic section togglers from interfering
+  e.preventDefault();
+  e.stopPropagation();
+
+  const section = btn.closest(".sidebar-section");
+  if (!section) return;
+
+  const otherId =
+    targetId === "capacityControls"
+      ? "capacityControlsSSD"
+      : "capacityControls";
+
+  const otherSection = document.getElementById(otherId);
+
+  const isOpen = !section.classList.contains("collapsed");
+
+  // If clicked section is open -> close it (both closed allowed)
+  if (isOpen) {
+    section.classList.add("collapsed");
+    return;
+  }
+
+  // If closed -> open it and close the other
+  section.classList.remove("collapsed");
+  otherSection?.classList.add("collapsed");
+}, true); // capture
+
+

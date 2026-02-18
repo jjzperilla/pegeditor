@@ -30,6 +30,8 @@ if (!$capacity) {
     exit;
 }
 
+$drive_type_id = (int)($_GET['drive_type_id'] ?? 1); // 1=HDD, 2=SSD
+if (!in_array($drive_type_id, [1, 2], true)) $drive_type_id = 1;
 /* ===============================
    LOAD PEG HISTORY (SNAPSHOT) - workspace scoped
 ================================ */
@@ -59,11 +61,13 @@ $stmt = $db->prepare("
      AND pc.workspace_id = h.workspace_id
     JOIN drive_types dt ON dt.id = pc.drive_type_id
     WHERE h.workspace_id = ?
+      AND pc.drive_type_id = ?
       AND h.capacity = ?
     ORDER BY h.saved_at DESC
 ");
 
-$stmt->bind_param("is", $workspace_id, $capacity);
+$stmt->bind_param("iis", $workspace_id, $drive_type_id, $capacity);
+
 $stmt->execute();
 $res = $stmt->get_result();
 
@@ -97,7 +101,9 @@ while ($row = $res->fetch_assoc()) {
    RESPONSE
 ================================ */
 echo json_encode([
-    "status"       => "success",
-    "workspace_id" => $workspace_id,
-    "history"      => $history
+    "status"        => "success",
+    "workspace_id"  => $workspace_id,
+    "drive_type_id" => $drive_type_id,
+    "history"       => $history
 ]);
+

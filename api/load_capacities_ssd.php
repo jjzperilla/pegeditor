@@ -21,7 +21,7 @@ $stmt = $db->prepare("
     SELECT capacity
     FROM capacities
     WHERE workspace_id = ?
-    AND drive_type_id = 1
+    AND drive_type_id = 2
     ORDER BY id ASC
 ");
 $stmt->bind_param("i", $workspace_id);

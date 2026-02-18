@@ -19,14 +19,30 @@ if ($id <= 0) {
   exit;
 }
 
-$stmt = $db->prepare("
-  SELECT id, capacity, interface, condition_type, drive_type_id
-  FROM peg_configs
-  WHERE id = ?
-    AND workspace_id = ?
-  LIMIT 1
-");
-$stmt->bind_param("ii", $id, $workspace_id);
+$drive_type_id = (int)($_GET['drive_type_id'] ?? 0); // 0 = ignore
+if (!in_array($drive_type_id, [0,1,2], true)) $drive_type_id = 0;
+
+if ($drive_type_id > 0) {
+  $stmt = $db->prepare("
+    SELECT id, capacity, interface, condition_type, drive_type_id
+    FROM peg_configs
+    WHERE id = ?
+      AND workspace_id = ?
+      AND drive_type_id = ?
+    LIMIT 1
+  ");
+  $stmt->bind_param("iii", $id, $workspace_id, $drive_type_id);
+} else {
+  $stmt = $db->prepare("
+    SELECT id, capacity, interface, condition_type, drive_type_id
+    FROM peg_configs
+    WHERE id = ?
+      AND workspace_id = ?
+    LIMIT 1
+  ");
+  $stmt->bind_param("ii", $id, $workspace_id);
+}
+
 $stmt->execute();
 $row = $stmt->get_result()->fetch_assoc();
 

@@ -25,7 +25,15 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
 
 </head>
 <body>
+<!-- Top Loading Bar -->
+<div id="pageLoader">
+  <div class="page-loader-bar"></div>
+</div>
 
+<!-- White Transparent Overlay -->
+<div id="pageOverlay">
+  <div class="overlay-loader"></div>
+</div>
   
   <button id="sidebarSlideToggle"
         class="sidebar-slide-toggle"
@@ -36,6 +44,23 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
     <aside class="sidebar">
   <div class="sidebar-content">    
   <div class="sidebar-section collapsed">
+  <div class="roleMini">
+  <div class="roleMini__left">
+    <span class="roleMini__icon">
+      <svg viewBox="0 0 24 24" fill="none">
+        <path d="M12 12a4 4 0 1 0-4-4 4 4 0 0 0 4 4Z"
+              stroke="currentColor" stroke-width="1.8"/>
+        <path d="M4.5 19c1.6-3 4.2-4.5 7.5-4.5S17.9 16 19.5 19"
+              stroke="currentColor" stroke-width="1.8"/>
+      </svg>
+    </span>
+
+    <span id="roleUser" class="roleMini__name"></span>
+  </div>
+
+  <span id="roleBadge" class="roleMini__badge is-viewer"></span>
+</div>
+
    <div class="workspace-wrapper">
   <label for="workspaceSelect" class="workspace-label">
   <svg class="workspace-ico" viewBox="0 0 24 24" aria-hidden="true">
@@ -69,30 +94,52 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
 
     </div>
   </div>
+<!-- HDD capacity control-->
+<div class="sidebar-section" id="capacityControls">
+  <button class="section-header" data-toggle="capacityControls">
+    <span>HDD CAPACITY CONTROLS</span>
+    <span class="chevron">▼</span>
+  </button>
 
-  <div class="sidebar-section">
-    <button class="section-header" data-toggle="capacityControls">
-      <span>CAPACITY CONTROLS</span>
-      <span class="chevron">▼</span>
-    </button>
+  <div class="section-body" id="capacityControlsBody">
+    <div class="sidebar-controls">
+      <input type="text" id="newCapacityInput" placeholder="e.g., 30TB">
+      <button id="addNewCapacityBtn">Add New Capacity</button>
+    </div>
 
-    <div class="section-body" id="capacityControls">
-
-      <div class="sidebar-controls">
-        <input type="text" id="newCapacityInput" placeholder="e.g., 30TB">
-        <button id="addNewCapacityBtn">Add New Capacity</button>
-      </div>
-
-      <div class="sidebar-subheader">Existing Capacities</div>
-      <div class="capacity-list" id="capacityList">
-        <span style="color:#9ca3af;font-size:13px;">Loading capacities...</span>
-      </div>
-
+    <div class="sidebar-subheader">Existing Capacities</div>
+    <div class="capacity-list" id="capacityList">
+      <span style="color:#9ca3af;font-size:13px;">Loading capacities...</span>
     </div>
   </div>
+</div>
+
+<!-- SSD capacity control-->
+<div class="sidebar-section collapsed" id="capacityControlsSSD">
+  <button class="section-header" data-toggle="capacityControlsSSD">
+    <span>SSD CAPACITY CONTROLS</span>
+    <span class="chevron">▼</span>
+  </button>
+
+  <div class="section-body" id="capacityControlsSSDBody">
+    <div class="sidebar-controls">
+      <input type="text" id="newSSDCapacityInput" placeholder="e.g., 1.92TB">
+      <button id="addNewSSDCapacityBtn">Add New Capacity</button>
+    </div>
+
+    <div class="sidebar-subheader">Existing Capacities</div>
+    <div class="capacity-list" id="capacitySSDList">
+      <span style="color:#9ca3af;font-size:13px;">Loading capacities...</span>
+    </div>
+  </div>
+</div>
+ 
+    
+    
       </div>
 <div class="sidebar-footer">
     <button id="homeBtn" class="home-btn">Home</button>
+    <button id="manageAppBtn" class="app-btn">Manage App</button>
     <button id="logoutBtn" class="logout-btn">
       Logout
     </button>
@@ -110,7 +157,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
             For each capacity, interface, and condition, compare recent sales vs market, then tune peg points and modifiers to get final sale and buy prices.
           </p>
         </div>
-        <div class="badge">Price Matrix V.3.1</div>
+        <div class="badge">Price Matrix V.4.0</div>
       </header>
  <div id="pegBreadcrumb" class="peg-breadcrumb">
   <button class="crumb-link" data-action="goHome">Home</button>
@@ -551,9 +598,12 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
           <div class="card-title">Peg Data History</div>
           <div class="card-subtitle" id="historyCardSubtitle">Select a capacity to view past configurations.</div>
         </div>
-        <button id="addNewPegConfigBtn" class="peg-add-row" style="margin-bottom:10px;">
-    + Add New Peg Configuration
-</button>
+        <button id="addNewPegConfigBtn" class="peg-add-row" style="margin-bottom:10px;" data-drive="HDD">
+        + Add New Peg Configuration
+        </button>
+        <button id="addNewPegConfigBtnSSD" class="peg-add-row" style="margin-bottom:10px;" data-drive="SSD">
+        + Add SSD New Peg Configuration
+        </button>
         <div class="peg-table-wrapper" style="margin-top: 0;">
 
 <div class="peg-history-filters">
@@ -701,6 +751,94 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
   </div>
   
 </div>
+<!-- Manage App Modal  -->
+<div id="manageAppModal" class="modal-backdrop manage-app-modal" style="display:none;">
+  <div class="manage-app-container">
+
+    <div class="modal-header">
+      <h3>Manage App</h3>
+      <button id="manageAppClose" class="modal-close">✕</button>
+    </div>
+    <div id="workspaceModalMsg" class="ws-msg" style="display:none;"></div>
+    <div id="userModalMsg" class="ws-msg" style="display:none;"></div>
+    <div id="oosEmailMsg" class="ws-msg" style="display:none;"></div>
+    <div id="priceEmailMsg" class="ws-msg" style="display:none;"></div>
+    <div class="manage-app-tabs">
+      <button class="manage-tab-btn active" data-tab="tab-workspaces">Manage Workspaces</button>
+      <button class="manage-tab-btn" data-tab="tab-users">Manage Users</button>
+      <button class="manage-tab-btn" data-tab="tab-email">Manage Email Notifications</button>
+    </div>
+
+    <div class="modal-body">
+
+      <!-- WORKSPACES TAB -->
+      <div id="tab-workspaces" class="manage-tab-panel active">
+        <div class="ws-add">
+          <input id="newWorkspaceName" type="text" placeholder="New workspace name" class="add-ws-input"/>
+          <button id="btnAddWorkspace" type="button" class="ws-btn">Add Workspace</button>
+        </div>
+
+        
+        <div id="workspaceAdminList" class="ws-list"></div>
+      </div>
+
+      <!-- USERS TAB -->
+      <div id="tab-users" class="manage-tab-panel">
+        <div class="user-add">
+          <input id="newUseruser" type="text" placeholder="User name" />
+          <input id="newUserPassword" type="password" placeholder="Password" class="add-usr-input" />
+          <button id="btnAddUser" type="button" class="ws-btn">Add User</button>
+        </div>
+
+        
+        <div id="userAdminList" class="ws-list"></div>
+      </div>
+
+      <!-- EMAIL TAB -->
+       <div id="tab-email" class="manage-tab-panel">
+
+    <!-- OOS RECIPIENTS -->
+    <div class="email-section">
+      <div class="email-section-header">
+        <h4>Out-of-Stock (OOS) Recipients</h4>
+        <div class="email-section-sub">These emails will receive OOS notifications.</div>
+      </div>
+
+      <div class="email-add">
+        <input id="newOosEmail" type="text" placeholder="Email address" />
+        <input id="newOosName" type="text" placeholder="Name (optional)" / hidden>
+        <button id="btnAddOosEmail" type="button">Add</button>
+      </div>
+
+      
+      <div id="oosEmailList" class="oos-row"></div>
+    </div>
+
+    <hr style="margin:16px 0; border:none; border-top:1px solid #5391f8;" />
+
+    <!-- PRICE RECIPIENTS -->
+    <div class="email-section">
+      <div class="email-section-header">
+        <h4>Price Change Recipients</h4>
+        <div class="email-section-sub">These emails will receive price change notifications.</div>
+      </div>
+
+      <div class="email-add">
+        <input id="newPriceEmail" type="text" placeholder="Email address" />
+        <input id="newPriceName" type="text" placeholder="Name (optional)" / hidden>
+        <button id="btnAddPriceEmail" type="button">Add</button>
+      </div>
+
+      
+      <div id="priceEmailList" class="ws-list"></div>
+    </div>
+
+  </div>
+
+    </div>
+  </div>
+</div>
+
   
   <?php
 $configIdFromUrl = isset($_GET['config_id']) ? (int)$_GET['config_id'] : 0;
@@ -716,5 +854,6 @@ $configIdFromUrl = isset($_GET['config_id']) ? (int)$_GET['config_id'] : 0;
 <script type="module" src="js/api.js"></script>
 <script type="module" src="js/app.js"></script>
 <script src="js/mainChart.js"></script>
+<script src="js/manageApp.js"></script>
 </body>
 </html>

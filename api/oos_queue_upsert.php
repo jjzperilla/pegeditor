@@ -54,11 +54,11 @@ if (!$ok) {
 
 /*
   Insert queue row scoped by workspace
-  IMPORTANT: Your oos_email_queue table should have workspace_id column
+  IMPORTANT: Your oos_user_queue table should have workspace_id column
   and a UNIQUE KEY that includes (workspace_id, queue_day, config_id, peg_point_id)
 */
 $stmt = $db->prepare("
-  INSERT INTO oos_email_queue (workspace_id, queue_day, config_id, peg_point_id)
+  INSERT INTO oos_user_queue (workspace_id, queue_day, config_id, peg_point_id)
   VALUES (?, ?, ?, ?)
   ON DUPLICATE KEY UPDATE noted_at = CURRENT_TIMESTAMP
 ");

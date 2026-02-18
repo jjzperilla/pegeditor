@@ -100,6 +100,8 @@ export function initWorkspaceDropdownUI() {
 
 //oos check
 let oosByCapacity = {};
+let oosByCapacityHDD = {};
+let oosByCapacitySSD = {};
 
 export function normCap(v) {
   return String(v || "").trim().toUpperCase().replace(/\s+/g, "");
@@ -110,33 +112,25 @@ function getActiveWorkspaceId() {
   return Number.isFinite(id) ? id : 0;
 }
 
-export async function loadOOSByCapacity() {
+export async function loadOOSByCapacity(driveTypeId) {
   const wsId = getActiveWorkspaceId();
 
-  if (!wsId) {
-    console.warn("No workspace selected; skipping OOS load");
-    window.oosByCapacity = {};
-    return;
-  }
-
-  const res = await fetch(`api/get_capacity_oos_status.php?workspace_id=${encodeURIComponent(wsId)}`, {
-    credentials: "same-origin"
-  });
+  const res = await fetch(
+    `api/get_capacity_oos_status.php?workspace_id=${encodeURIComponent(wsId)}&drive_type_id=${encodeURIComponent(driveTypeId)}`,
+    { credentials: "same-origin" }
+  );
 
   const data = await res.json();
+  if (!data || data.status !== "ok") return {};
 
-  if (!data || data.status !== "ok") {
-    console.warn("Failed to load OOS status", data);
-    window.oosByCapacity = {};
-    return;
-  }
-
-  const raw = data.oosByCapacity || {};
   const map = {};
-  for (const [k, v] of Object.entries(raw)) {
+  for (const [k, v] of Object.entries(data.oosByCapacity || {})) {
     map[normCap(k)] = Number(v) === 1 ? 1 : 0;
   }
 
-  window.oosByCapacity = map;
-  console.log("OOS MAP LOADED (WS " + wsId + "):", window.oosByCapacity);
+  console.log("OOS MAP (" + driveTypeId + "):", map);
+  return map;
 }
+
+
+

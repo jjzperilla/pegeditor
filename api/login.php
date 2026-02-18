@@ -18,20 +18,28 @@ if (!is_array($input) || !isset($input['password'])) {
 $password = trim($input['password']);
 
 /* =========================
-   Fetch user (single-user or admin user)
-   Adjust query if multi-user login
+   Fetch user (password-based match)
 ========================= */
 $stmt = $db->prepare("
-  SELECT id, password_hash
+  SELECT id, password_hash, role
   FROM users
   WHERE is_active = 1
   ORDER BY id ASC
-  LIMIT 1
+  LIMIT 50
 ");
 $stmt->execute();
-$user = $stmt->get_result()->fetch_assoc();
 
-if (!$user || !password_verify($password, $user['password_hash'])) {
+$res = $stmt->get_result();
+
+$matchedUser = null;
+while ($row = $res->fetch_assoc()) {
+  if (!empty($row['password_hash']) && password_verify($password, $row['password_hash'])) {
+    $matchedUser = $row;
+    break;
+  }
+}
+
+if (!$matchedUser) {
   http_response_code(401);
   echo json_encode([
     "status" => "error",
@@ -40,34 +48,46 @@ if (!$user || !password_verify($password, $user['password_hash'])) {
   exit;
 }
 
+$user = $matchedUser;
+
 /* =========================
    Login success
 ========================= */
 session_regenerate_id(true);
 
-$_SESSION['auth'] = true;              // optional legacy
+$_SESSION['auth'] = true; // optional legacy
 $_SESSION['user_id'] = (int)$user['id'];
+$_SESSION['role'] = (string)$user['role'];
 
 /* =========================
-   Set initial workspace
+   A) Ensure auto access to main workspace (ID=1)
 ========================= */
-$ws = $db->prepare("
-  SELECT workspace_id
-  FROM workspace_users
-  WHERE user_id = ?
-  ORDER BY workspace_id ASC
-  LIMIT 1
-");
-$ws->bind_param("i", $_SESSION['user_id']);
-$ws->execute();
-$row = $ws->get_result()->fetch_assoc();
+$mainWsId = 1;
+$userId = (int)$_SESSION['user_id'];
 
-$_SESSION['workspace_id'] = (int)($row['workspace_id'] ?? 1);
+// Add membership if missing (default role: viewer)
+$ins = $db->prepare("
+  INSERT INTO workspace_users (workspace_id, user_id, role)
+  SELECT ?, ?, 'viewer'
+  FROM DUAL
+  WHERE NOT EXISTS (
+    SELECT 1 FROM workspace_users WHERE workspace_id = ? AND user_id = ?
+  )
+");
+$ins->bind_param("iiii", $mainWsId, $userId, $mainWsId, $userId);
+$ins->execute();
+
+/* =========================
+   B) Set initial workspace (default to 1)
+   Since we auto-add above, workspace 1 is always valid.
+========================= */
+$_SESSION['workspace_id'] = 1;
 
 $_SESSION['last_activity'] = time();
 
 echo json_encode([
   "status" => "success",
   "user_id" => $_SESSION['user_id'],
-  "workspace_id" => $_SESSION['workspace_id']
+  "workspace_id" => $_SESSION['workspace_id'],
+  "role" => $_SESSION['role']
 ]);

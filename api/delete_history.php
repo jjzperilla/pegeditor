@@ -3,6 +3,8 @@ require "auth.php";
 requireAuth();
 header("Content-Type: application/json");
 require "db.php";
+require __DIR__ . "/role.php";
+requireEditor($db);
 
 // ---- Workspace (default to Main = 1) ----
 // If you already have a helper like currentWorkspaceId(), use that instead.

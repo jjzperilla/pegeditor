@@ -17,6 +17,60 @@
       color: var(--text-main);
     }
 
+/* ===== TOP LOADING BAR ===== */
+#pageLoader {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 3px;
+  z-index: 9999;
+  pointer-events: none;
+}
+
+.page-loader-bar {
+  height: 100%;
+  width: 0%;
+  opacity: 0;
+  background: linear-gradient(90deg, #3b82f6, #60a5fa);
+  transition: width 0.25s ease, opacity 0.25s ease;
+}
+
+/* ===== OVERLAY ===== */
+#pageOverlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 9998;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+#pageOverlay.active {
+  opacity: 1;
+  pointer-events: all;
+}
+
+.overlay-loader {
+  width: 36px;
+  height: 36px;
+  border: 3px solid #e5e7eb;
+  border-top: 3px solid #3b82f6;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+
     .app-shell {
       display: flex;
       min-height: 100vh;
@@ -24,7 +78,7 @@
 
     /* Sidebar */
     .sidebar {
-      width: 220px;
+      width: 230px;
       background: #111827;
       display: flex;
       flex-direction: column;
@@ -56,7 +110,7 @@ overflow-y: auto;
 }
 
 /* Logout button styling */
-.logout-btn, .home-btn {
+.logout-btn, .home-btn, .app-btn {
   width: 100%;
   padding: 10px 12px;
   border-radius: 8px;
@@ -69,7 +123,11 @@ overflow-y: auto;
   cursor: pointer;
 }
 
-.logout-btn:hover, home-btn:hover {
+.ws-btn{
+  margin-bottom: 10px;
+}
+
+.logout-btn:hover, home-btn:hover, .app-btn:hover {
   background: #374151;
 }
 
@@ -208,6 +266,12 @@ overflow-y: auto;
   #mainEditorLayout > .left-column { grid-area: 1 / 1 / 2 / 2; }
   #mainEditorLayout > aside.card   { grid-area: 1 / 2 / 2 / 3; }
   #mainEditorLayout > .bottom-column { grid-area: 2 / 1 / 3 / 3; }
+  
+  .ws-row {
+        grid-template-columns: 1fr auto;
+  }
+  
+  
 }
 
     .left-column {
@@ -753,8 +817,7 @@ font-size: 12px;
   
   .sidebar-footer {
   width: 260px;
-  max-width: 85%;
-  height: 64px;
+  height: 70px;
   background: #111827;
   border-top: 1px solid rgba(255, 255, 255, 0.08);
   padding: 12px;
@@ -764,6 +827,11 @@ font-size: 12px;
   flex-direction: row;
     
   }
+  
+  .logout-btn, .home-btn, .app-btn{
+    height: 50px;
+  }
+  
   
   aside.sidebar.collapsed {
     transform: translateX(-100%);
@@ -2308,4 +2376,644 @@ justify-content: center;
   color: #dc2626;
   margin-left: 4px;
   font-size: 13px;
+}
+
+
+/* width of scrollbar */
+.sidebar::-webkit-scrollbar {
+  width: 2px;
+}
+
+/* track (background) */
+.sidebar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* draggable thumb */
+.sidebar::-webkit-scrollbar-thumb {
+  background: rgba(100, 116, 139, 0.45);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+/* hover effect */
+.sidebar::-webkit-scrollbar-thumb:hover {
+  background: rgba(100, 116, 139, 0.7);
+}
+.sidebar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(100,116,139,0.5) transparent;
+}
+.sidebar::-webkit-scrollbar-thumb {
+  opacity: 0;
+  transition: opacity .2s;
+}
+
+.sidebar:hover::-webkit-scrollbar-thumb {
+  opacity: 1;
+}
+
+/* ====================================================
+   MANAGE APP MODAL
+==================================================== */
+
+.manage-app-modal{
+  position: fixed;
+  inset: 0;
+  z-index: 9999;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding: 24px;
+  background: rgba(15, 23, 42, .35);
+  backdrop-filter: blur(1px);
+  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial;
+  color: #0f172a;
+}
+
+.manage-app-modal .manage-app-container{
+  width: min(980px, 96vw);
+  max-height: 88vh;
+  display:flex;
+  flex-direction:column;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, .10);
+  border-radius: 16px;
+  box-shadow: 0 24px 70px rgba(0,0,0,.25);
+  overflow:hidden;
+}
+
+/* Header */
+.manage-app-modal .modal-header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid rgba(15, 23, 42, .08);
+  background: linear-gradient(180deg, #ffffff, #fbfdff);
+}
+
+.manage-app-modal .modal-header h3{
+  margin:0;
+  font-size: 16px;
+  font-weight: 600;
+  letter-spacing: .2px;
+}
+
+.manage-app-modal .modal-close{
+  width: 38px;
+  height: 38px;
+  border-radius: 12px;
+  border: none;
+  font-size:25px;
+  background: #ffffff;
+  color: #0f172a;
+  cursor:pointer;
+  display:grid;
+  place-items:center;
+  transition: transform .12s ease, box-shadow .12s ease, background .12s ease;
+}
+
+
+/* Tabs */
+.manage-app-modal .manage-app-tabs{
+  display:flex;
+  gap:10px;
+  padding: 12px 14px;
+  border-bottom: 1px solid rgba(15, 23, 42, .08);
+  background: #ffffff;
+}
+
+.manage-app-modal .manage-tab-btn{
+  appearance:none;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #f8fafc;
+  color: #475569;
+  border-radius: 999px;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor:pointer;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, color .12s ease, box-shadow .12s ease;
+  white-space: nowrap;
+}
+.manage-app-modal .manage-tab-btn:hover{
+  transform: translateY(-1px);
+  background: #eef2ff;
+  border-color: rgba(83,145,248,.35);
+  color: #1e293b;
+  box-shadow: 0 8px 18px rgba(2,6,23,.08);
+}
+.manage-app-modal .manage-tab-btn.active{
+  background: rgba(83,145,248,.14);
+  border-color: rgba(83,145,248,.55);
+  color: #0f172a;
+}
+
+/* Body */
+.manage-app-modal .modal-body{
+  padding: 16px;
+  overflow:auto;
+  background: #fbfdff;
+}
+
+/* Panels */
+.manage-app-modal .manage-tab-panel{ display:none; }
+.manage-app-modal .manage-tab-panel.active{ display:block; }
+
+/* Add rows */
+.manage-app-modal .ws-add,
+.manage-app-modal .user-add,
+.manage-app-modal .email-add{
+  display:grid;
+  gap:10px;
+  align-items:center;
+  padding: 12px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #ffffff;
+  border-radius: 14px;
+  box-shadow: 0 10px 24px rgba(2,6,23,.06);
+}
+
+/* Inputs (all your inputs inside modal) */
+.manage-app-modal input[type="text"],
+.manage-app-modal input[type="password"]{
+  height: 31px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, .12);
+  background: #ffffff;
+  color: #0f172a;
+  padding: 0 12px;
+  outline:none;
+  transition: box-shadow .12s ease, border-color .12s ease, background .12s ease;
+}
+.manage-app-modal input::placeholder{ color: #94a3b8; }
+.manage-app-modal input:focus{
+  border-color: rgba(83,145,248,.75);
+  box-shadow: 0 0 0 3px rgba(83,145,248,.22);
+  background: #ffffff;
+}
+
+/* Primary buttons */
+.manage-app-modal .ws-btn,
+.manage-app-modal #btnAddOosEmail,
+.manage-app-modal #btnAddPriceEmail{
+  height: 40px;
+  padding: 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(83,145,248,.55);
+  background: linear-gradient(180deg, rgba(83,145,248,.95), rgba(47,111,230,.95));
+  color: #fff;
+  font-weight: 600;
+  font-size: 13px;
+  cursor:pointer;
+  transition: transform .12s ease, filter .12s ease, box-shadow .12s ease;
+  box-shadow: 0 10px 22px rgba(83,145,248,.22);
+}
+.manage-app-modal .ws-btn:hover,
+.manage-app-modal #btnAddOosEmail:hover,
+.manage-app-modal #btnAddPriceEmail:hover{
+  transform: translateY(-1px);
+  filter: brightness(1.03);
+}
+.manage-app-modal .ws-btn:active,
+.manage-app-modal #btnAddOosEmail:active,
+.manage-app-modal #btnAddPriceEmail:active{
+  transform: translateY(0);
+}
+
+/* Messages */
+.manage-app-modal .ws-msg{
+  margin: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 13px;
+  box-shadow: 0 10px 20px rgba(2,6,23,.06);
+}
+
+/* Lists wrapper */
+.manage-app-modal .ws-list,
+.manage-app-modal .oos-row{
+  margin-top: 12px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+}
+
+/* =========================
+   Row cards you already have
+   (.ws-row, .user-list, .mail-list)
+   ========================= */
+
+.manage-app-modal .ws-row,
+.manage-app-modal .user-list,
+.manage-app-modal .mail-list{
+  display:grid;
+  grid-template-columns: 1fr auto;
+  gap: 12px;
+  align-items:start;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(2,6,23,.05);
+}
+
+/* Make the first column (inputs/meta) stack nicely */
+.manage-app-modal .ws-row > div:first-child,
+.manage-app-modal .user-list > div:first-child,
+.manage-app-modal .mail-list > div:first-child{
+  display:flex;
+  flex-direction:column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* Meta text */
+.manage-app-modal .ws-meta{
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* WS name input specifically */
+.manage-app-modal .ws-row, .ws-name, .user-name, .er-email{
+    width: 100%;
+    padding: 7px 10px;
+    border-radius: 10px;
+    border: 1px solid rgba(15, 23, 42, .12);
+}
+
+/* User wrapper (2 inputs on one line on wide screens) */
+.manage-app-modal .user-wrapper{
+  display:grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+@media (max-width: 720px){
+  .manage-app-modal .user-wrapper{
+    grid-template-columns: 1fr;
+  }
+}
+
+/* Actions area */
+.manage-app-modal .ws-actions{
+  display:flex;
+  gap: 8px;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap: wrap;
+}
+
+/* Action buttons (Save/Delete/Members/etc.) */
+.manage-app-modal .ws-actions button,
+.manage-app-modal .ws-save,
+.manage-app-modal .ws-delete,
+.manage-app-modal .ws-members-toggle,
+.manage-app-modal .user-save,
+.manage-app-modal .user-delete,
+.manage-app-modal .er-save,
+.manage-app-modal .member-refresh,
+.manage-app-modal .er-delete{
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 500;
+  cursor:pointer;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.manage-app-modal .ws-actions button:hover,
+.manage-app-modal .ws-save:hover,
+.manage-app-modal .ws-delete:hover,
+.manage-app-modal .ws-members-toggle:hover,
+.manage-app-modal .user-save:hover,
+.manage-app-modal .user-delete:hover,
+.manage-app-modal .er-save:hover,
+.manage-app-modal .member-refresh:hover,
+.manage-app-modal .er-delete:hover{
+  transform: translateY(-1px);
+  background: #eef2ff;
+  border-color: rgba(83,145,248,.35);
+  box-shadow: 0 10px 18px rgba(2,6,23,.08);
+}
+
+/* Danger buttons (Delete) */
+.manage-app-modal .ws-delete,
+.manage-app-modal .user-delete,
+.manage-app-modal .er-delete{
+  border-color: rgba(239,68,68,.35);
+  background: rgba(239,68,68,.08);
+  color: #991b1b;
+}
+.manage-app-modal .ws-delete:hover,
+.manage-app-modal .user-delete:hover,
+.manage-app-modal .er-delete:hover{
+  background: rgba(239,68,68,.12);
+  border-color: rgba(239,68,68,.45);
+}
+
+/* Members container */
+.manage-app-modal .ws-members{
+  margin-top: 8px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px dashed rgba(15, 23, 42, .18);
+  background: #f8fafc;
+}
+
+/* Email sections */
+.manage-app-modal .email-section{
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(2,6,23,.05);
+}
+.manage-app-modal .email-section-header h4{
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+}
+.manage-app-modal .email-section-sub{
+  margin-top: 4px;
+  font-size: 12px;
+  color: #64748b;
+}
+
+/* HR in your HTML (override inline look a bit) */
+.manage-app-modal hr{
+  border: none;
+  border-top: 1px solid rgba(15, 23, 42, .10);
+  margin: 16px 0;
+}
+
+/* Small screens */
+@media (max-width: 560px){
+  .manage-app-modal{
+    padding: 14px;
+  }
+  .manage-app-modal .manage-app-tabs{
+    overflow:auto;
+    scrollbar-width: thin;
+  }
+  .manage-app-modal .manage-tab-btn{ 
+         flex: 0 0 auto;
+        height: 40px;
+        margin-bottom: 50px;
+  
+  }
+  .manage-app-modal .ws-row,
+  .manage-app-modal .user-list,
+  .manage-app-modal .mail-list{
+    grid-template-columns: 1fr;
+  }
+  .manage-app-modal .ws-actions{
+    justify-content:flex-start;
+  }
+}
+
+.manage-app-modal .member-list{
+  margin-top: 10px !important; /* override inline margin */
+  display:flex;
+  flex-direction:column;
+  gap: 10px;
+}
+
+/* Each member row card */
+.manage-app-modal .member-row{
+  display:grid;
+  grid-template-columns: 1fr 220px auto;
+  gap: 12px;
+  align-items:center;
+  padding: 12px;
+  border-radius: 14px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #ffffff;
+  box-shadow: 0 10px 22px rgba(2,6,23,.05);
+}
+
+/* Left column spacing */
+.manage-app-modal .member-row > div:first-child{
+  display:flex;
+  flex-direction:column;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* Member name */
+.manage-app-modal .member-row b{
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* Role select container aligns nicely */
+.manage-app-modal .member-row > div:nth-child(2){
+  display:flex;
+  justify-content:flex-start;
+}
+
+/* Select styling (role-select + any select in modal) */
+.manage-app-modal select,
+.manage-app-modal .role-select{
+  width: 100%;
+  height: 40px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, .12);
+  background: #ffffff;
+  color: #0f172a;
+  padding: 0 36px 0 12px;
+  outline: none;
+  cursor: pointer;
+  transition: box-shadow .12s ease, border-color .12s ease;
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+
+  /* simple dropdown arrow */
+  background-image:
+    linear-gradient(45deg, transparent 50%, #64748b 50%),
+    linear-gradient(135deg, #64748b 50%, transparent 50%),
+    linear-gradient(to right, transparent, transparent);
+  background-position:
+    calc(100% - 18px) 16px,
+    calc(100% - 12px) 16px,
+    100% 0;
+  background-size:
+    6px 6px,
+    6px 6px,
+    2.5em 2.5em;
+  background-repeat: no-repeat;
+}
+
+.manage-app-modal select:focus,
+.manage-app-modal .role-select:focus{
+  border-color: rgba(83,145,248,.75);
+  box-shadow: 0 0 0 3px rgba(83,145,248,.22);
+}
+
+/* Member actions (override inline display/gap if needed) */
+.manage-app-modal .member-actions{
+  display:flex !important;
+  gap: 8px !important;
+  align-items:center;
+  justify-content:flex-end;
+  flex-wrap: wrap;
+}
+
+.member-add {
+    margin-top: 10px;
+    display: flex;
+    gap: 10px;
+}
+/* Member buttons */
+.manage-app-modal .member-save,
+.manage-app-modal .member-add-btn,
+.manage-app-modal .member-remove{
+  height: 34px;
+  padding: 0 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(15, 23, 42, .10);
+  background: #f8fafc;
+  color: #0f172a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor:pointer;
+  transition: transform .12s ease, background .12s ease, border-color .12s ease, box-shadow .12s ease;
+}
+.manage-app-modal .member-add-btn{
+  height:40px;
+  width:120px;
+}
+
+.manage-app-modal .member-save:hover,
+.manage-app-modal .member-add-btn:hover,
+.manage-app-modal .member-remove:hover{
+  transform: translateY(-1px);
+  background: #eef2ff;
+  border-color: rgba(83,145,248,.35);
+  box-shadow: 0 10px 18px rgba(2,6,23,.08);
+}
+
+/* Remove = danger look */
+.manage-app-modal .member-remove{
+  border-color: rgba(239,68,68,.35);
+  background: rgba(239,68,68,.08);
+  color: #991b1b;
+}
+.manage-app-modal .member-remove:hover{
+  background: rgba(239,68,68,.12);
+  border-color: rgba(239,68,68,.45);
+}
+
+/* =========================
+   Inputs polish (global inside modal)
+   (covers member inputs too, if you add any)
+   ========================= */
+
+/* Slightly nicer spacing for any input groups */
+.manage-app-modal .member-row input[type="text"],
+.manage-app-modal .member-row input[type="password"],
+.manage-app-modal .member-row input[type="email"]{
+  height: 31px;
+  border-radius: 12px;
+}
+
+.manage-app-modal .hidden{
+  display: none !important;
+}
+
+/* Responsive: stack columns on small screens */
+@media (max-width: 720px){
+  .manage-app-modal .member-row{
+    grid-template-columns: 1fr;
+    align-items:stretch;
+  }
+  .manage-app-modal .member-actions{
+    justify-content:flex-start;
+  }
+  .manage-app-modal .member-row > div:nth-child(2){
+    width: min(360px, 100%);
+  }
+}
+
+/* role */
+.roleMini{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  width:100%;
+  height:34px;
+  padding:0 10px;
+  border-radius:10px;
+  margin-bottom: 10px;
+  background:#ffffff;
+  border:1px solid rgba(0,0,0,.08);
+}
+
+/* left side */
+.roleMini__left{
+  display:flex;
+  align-items:center;
+  gap:6px;
+  min-width:0;
+}
+
+/* icon */
+.roleMini__icon{
+  width:18px;
+  height:18px;
+  color:#9ca3af;
+  display:grid;
+  place-items:center;
+}
+
+.roleMini__icon svg{
+  width:100%;
+  height:100%;
+}
+
+/* username */
+.roleMini__name{
+  font-size:13px;
+  font-weight:500;
+  color:#374151;
+
+  max-width:95px;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+
+/* badge */
+.roleMini__badge{
+  font-size:11px;
+  font-weight:600;
+  padding:2px 15px;
+  border-radius:7px;
+  border:2px solid transparent;
+}
+
+/* viewer */
+.roleMini__badge.is-viewer {
+  background:#f3e8c7;
+  border-color:#e2c88c;
+  color:#b08927;
+}
+
+/* editor */
+.roleMini__badge.is-editor{
+    background: #f3f4f6;
+    border-color: #939393;
+    color: #6b7280; 
+}
+
+.sidebar-section.collapsed .section-body{
+  display:none;
 }

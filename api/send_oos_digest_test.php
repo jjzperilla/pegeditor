@@ -26,7 +26,7 @@ foreach ($argv as $a) {
 // 1) get all unsent queued items for the day
 $q = $db->prepare("
   SELECT q.config_id, q.peg_point_id
-  FROM oos_email_queue q
+  FROM oos_user_queue q
   WHERE q.queue_day = ?
     AND q.sent_at IS NULL
   ORDER BY q.config_id ASC, q.peg_point_id ASC
@@ -99,8 +99,8 @@ function fetchPoints(mysqli $db, array $pointIds): array {
   return $out;
 }
 
-// Build ONE email body with sections per config_id
-// Build ONE email body with sections per config_id (plain text)
+// Build ONE user body with sections per config_id
+// Build ONE user body with sections per config_id (plain text)
 $sections = [];
 
 foreach ($byConfig as $configId => $pointIds) {
@@ -151,7 +151,7 @@ foreach ($byConfig as $configId => $pointIds) {
   ]);
 }
 
-// Final email body
+// Final user body
 $body = implode("\n", array_merge(
   [
     "Hello,",
@@ -171,7 +171,7 @@ $body = implode("\n", $sections);
 
 $subject = "OOS Summary Notification – Peg Points Marked Out of Stock ({$queueDay} EST)";
 
-$mailResult = sendOosSummaryEmail($TO, $subject, $body, $CC);
+$mailResult = sendOosSummaryuser($TO, $subject, $body, $CC);
 
 if (empty($mailResult['success'])) {
   $err = $mailResult['error'] ?? 'Unknown mailer error';
@@ -184,7 +184,7 @@ echo "Mail sent.\n";
 // Mark queue as sent (unless test)
 if (!$isTest) {
   $mark = $db->prepare("
-    UPDATE oos_email_queue
+    UPDATE oos_user_queue
     SET sent_at = NOW(), sent_message = 'sent'
     WHERE queue_day = ?
       AND sent_at IS NULL

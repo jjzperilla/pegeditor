@@ -17,17 +17,77 @@ if ($workspace_id <= 0) $workspace_id = 1;
 // -------------------- time (EST day_date is DATE) --------------------
 $tzEST = new DateTimeZone('America/New_York');
 
-$todayEST     = new DateTime('today', $tzEST);              // today 00:00 EST
-$yesterdayEST = (clone $todayEST)->modify('-1 day');        // yesterday 00:00 EST
+$todayEST = new DateTime('today', $tzEST); // today 00:00 EST
 
-$startUTC = $yesterdayEST->format('Y-m-d'); // DATE
-$endUTC   = $todayEST->format('Y-m-d');     // DATE
+// TEST override (optional)
+if (isset($_GET['dry_run']) && !empty($_GET['test_date'])) {
+  $d = DateTime::createFromFormat('Y-m-d', $_GET['test_date'], $tzEST);
+  if ($d instanceof DateTime) $todayEST = $d;
+}
+
+// -------------------- Only send on Monday + Friday (EST) --------------------
+$dow = (int)$todayEST->format('N'); // 1=Mon ... 5=Fri ... 7=Sun
+
+// optional testing override
+if (isset($_GET['dry_run']) && isset($_GET['test_dow'])) {
+  $testDow = (int)$_GET['test_dow'];
+  if ($testDow >= 1 && $testDow <= 7) $dow = $testDow;
+}
+
+if (!in_array($dow, [1, 5], true)) {
+  echo json_encode([
+    "status" => "ok",
+    "message" => "Skipped: price change digest only sends on Monday and Friday (EST).",
+    "date_est" => $todayEST->format('Y-m-d'),
+    "day_name_est" => $todayEST->format('l')
+  ]);
+  exit;
+}
+
+// -------------------- Window logic --------------------
+// Monday: include weekend changes since Friday (Fri->Mon)
+// Friday: include week-to-date (Mon->Fri)
+if ($dow === 1) {
+  // Monday: go back to Friday
+  $startEST = (clone $todayEST)->modify('-3 day'); // Fri
+} else {
+  // Friday: start at Monday of this week
+  $startEST = (clone $todayEST)->modify('monday this week');
+}
+
+$endEST = $todayEST;
+
+$startUTC = $startEST->format('Y-m-d');
+$endUTC   = $endEST->format('Y-m-d');
 
 $todayLabel  = $todayEST->format('Y-m-d');
 $windowLabel = "{$startUTC} → {$endUTC}";
+
+
 // recipients
 $to = "jperilla@servertechsolutions.com";
-$cc = ["jperilla@servertechsolutions.com", "jj.perilla12@gmail.com"];
+$cc = [];
+
+// get PRICE notification recipients
+$type = "PRICE";
+
+$stmt = $db->prepare("
+  SELECT c.email
+  FROM email_notification_subscriptions s
+  JOIN email_contacts c ON c.id = s.contact_id
+  WHERE s.notif_type = ?
+    AND s.is_active = 1
+    AND c.is_active = 1
+  ORDER BY c.email ASC
+");
+$stmt->bind_param("s", $type);
+$stmt->execute();
+
+$res = $stmt->get_result();
+
+while ($row = $res->fetch_assoc()) {
+  $cc[] = $row["email"];
+}
 
 // dry run via web: ?dry_run=1
 $dryRun = isset($_GET['dry_run']) ? (int)$_GET['dry_run'] : 0;
@@ -216,7 +276,7 @@ $qPrev->execute();
     }
   }
 
-  // ✅ Only email if there are actual peg point changes
+  // ✅ Only user if there are actual peg point changes
   // Also remove configs that ended up with zero changes
   foreach ($changesByConfig as $cid => $bundle) {
     if (empty($bundle['changes'])) unset($changesByConfig[$cid]);
@@ -225,7 +285,7 @@ $qPrev->execute();
   if (!$changesByConfig) {
     echo json_encode([
       "status" => "ok",
-      "message" => "No peg point PRICE changes in EST window; email not sent.",
+      "message" => "No peg point PRICE changes in EST window; user not sent.",
       "window_est" => $windowLabel,
       "window_utc" => [$startUTC, $endUTC],
     ]);
@@ -377,13 +437,13 @@ if ($before && $after) {
   });
 
   /**
-   * 6) Build final email (plain text style)
+   * 6) Build final user (plain text style)
    */
   $subject = "Price Change Summary Notification: {$todayLabel} (EST)";
 
   $bodyText = implode("\n", array_merge(
     [
-      "Please see below the Daily Price Change Summary (PEG Point price changes).",
+      "Please see below the Weekly Price Change Summary (PEG Point price changes).",
       "Window (EST): {$windowLabel}",
       "",
       "<hr>",
@@ -413,13 +473,13 @@ if ($before && $after) {
   // Send as HTML but preserve plain-text formatting
   $bodyHtml = nl2br($bodyText);
 
-  $resMail = sendOosSummaryEmail($to, $subject, $bodyHtml, $cc);
+  $resMail = sendOosSummaryuser($to, $subject, $bodyHtml, $cc);
 
   if (empty($resMail["success"])) {
     $err = $resMail["error"] ?? "Unknown mailer error";
     echo json_encode([
       "status" => "error",
-      "message" => "Email send failed",
+      "message" => "user send failed",
       "error" => $err
     ]);
     exit;

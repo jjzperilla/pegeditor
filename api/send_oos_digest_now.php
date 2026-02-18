@@ -32,7 +32,28 @@ $nowEST  = $est->format('Y-m-d H:i:s');
 
 // recipients
 $to = "jperilla@servertechsolutions.com";
-$cc = ["jperilla@servertechsolutions.com", "jj.perilla12@gmail.com"];
+$cc = [];
+
+// get PRICE notification recipients
+$type = "OOS";
+
+$stmt = $db->prepare("
+  SELECT c.email
+  FROM email_notification_subscriptions s
+  JOIN email_contacts c ON c.id = s.contact_id
+  WHERE s.notif_type = ?
+    AND s.is_active = 1
+    AND c.is_active = 1
+  ORDER BY c.email ASC
+");
+$stmt->bind_param("s", $type);
+$stmt->execute();
+
+$res = $stmt->get_result();
+
+while ($row = $res->fetch_assoc()) {
+  $cc[] = $row["email"];
+}
 
 // dry run via web: ?dry_run=1
 $dryRun = isset($_GET['dry_run']) ? (int)$_GET['dry_run'] : 0;
@@ -102,7 +123,7 @@ try {
   }
 
   /**
-   * 2) Latest saved_at per config for sorting only (NOT shown in email)
+   * 2) Latest saved_at per config for sorting only (NOT shown in user)
    */
   $latestStmt = $db->prepare("
     SELECT MAX(saved_at) AS latest_saved_at
@@ -166,7 +187,7 @@ try {
   });
 
   /**
-   * 3) Build final email (plain text style)
+   * 3) Build final user (plain text style)
    */
   $subject = "OOS Summary Notification - Peg Points Marked Out of Stock: {$today} (EST)";
 
@@ -198,13 +219,13 @@ try {
 
   $bodyHtml = nl2br($bodyText);
 
-  $resMail = sendOosSummaryEmail($to, $subject, $bodyHtml, $cc);
+  $resMail = sendOosSummaryuser($to, $subject, $bodyHtml, $cc);
 
   if (empty($resMail["success"])) {
     $err = $resMail["error"] ?? "Unknown mailer error";
     echo json_encode([
       "status" => "error",
-      "message" => "Email send failed",
+      "message" => "user send failed",
       "error" => $err
     ]);
     exit;
