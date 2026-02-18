@@ -81,3 +81,19 @@ export function initAlertModal() {
 
   return { appAlert };
 }
+
+
+export function waitForAlertOk() {
+  return new Promise((resolve) => {
+    const okBtn = document.getElementById("appAlertOk");
+    if (!okBtn) return resolve();
+
+    // one-time handler
+    const handler = () => {
+      okBtn.removeEventListener("click", handler);
+      resolve();
+    };
+
+    okBtn.addEventListener("click", handler, { once: true });
+  });
+}

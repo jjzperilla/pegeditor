@@ -83,6 +83,7 @@ import { initConfirmModal, initAlertModal } from "./ui/modals.js";
 
 const { appConfirm } = initConfirmModal();
 const { appAlert } = initAlertModal();
+window.appAlert = appAlert;
 const api = window.api;
 
 
