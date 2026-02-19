@@ -570,7 +570,7 @@ if (prices.length) {
 }
       
     const key = normCap(cap);
-    console.log("CAP", cap, "KEY", key, "VAL", map[key]);
+    //console.log("CAP", cap, "KEY", key, "VAL", map[key]);
     const hasOOS = map[key] === 1;
       const oosIcon = hasOOS ? ' <span class="cap-oos">❗</span>' : "";
 
@@ -771,23 +771,34 @@ if (adjusted !== null) {
     /* =========================
        ROW CLICK → HISTORY
     ========================= */
-    tr.addEventListener('click', (e) => {
-      if (
-    e.target.closest('button') ||
-    e.target.closest('input[type="checkbox"]')
-  ) return;
+tr.addEventListener("click", (e) => {
 
-      const block = getCurrentPegBlock();
-      if (!block?.points?.[idx]) return;
+  if (
+    e.target.closest("button") ||
+    e.target.closest("a") ||
+    e.target.closest("input") ||
+    e.target.closest("textarea") ||
+    e.target.closest("select") ||
+    e.target.closest("label") ||
+    e.target.closest("[data-action]")
+  ) {
+    return;
+  }
 
-      activePegPointIndex = idx;
-      showPegHistoryFromDatabase(idx);
+  const block = getCurrentPegBlock();
+  if (!block?.points?.[idx]) return;
 
-      document.querySelectorAll('#pegTableBody tr.clickable-peg-row')
-        .forEach(r => r.classList.remove('active'));
-      tr.classList.add('active');
-      showPegHistorySection();
-    });
+  activePegPointIndex = idx;
+  showPegHistoryFromDatabase(idx);
+
+  document
+    .querySelectorAll("#pegTableBody tr.clickable-peg-row")
+    .forEach((r) => r.classList.remove("active"));
+
+  tr.classList.add("active");
+  showPegHistorySection();
+});
+
 
   });
   applyOOSRowStyling();
@@ -1195,8 +1206,8 @@ async function loadAllCapacities() {
     const hddRes = results[0];
     const ssdRes = results[1];
 
-    console.log("HDD result:", hddRes);
-    console.log("SSD result:", ssdRes);
+    //console.log("HDD result:", hddRes);
+    //console.log("SSD result:", ssdRes);
     
     if (hddRes.status === "fulfilled") {
       capacities = Array.from(new Set(hddRes.value || []));
@@ -1382,7 +1393,7 @@ startPegLock(resolvedConfigId);
   ===================================================== */
   const basePegPrice = Number(state.basePegPrice);
   const rawPrice = basePegPrice;
-  console.log('raw price', rawPrice);
+  //console.log('raw price', rawPrice);
   let weightedSum = 0;
   let totalWeight = 0;
 

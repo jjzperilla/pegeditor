@@ -134,7 +134,7 @@ export async function safeFetch(
     if (isForbidden) {
       const msg = data?.message || "Editor access required";
 
-      // background calls should NOT reload the page
+      //background calls should NOT reload the page
       if (ui.forbidden === "ignore") return data;
 
       if (ui.forbidden === "throw") {

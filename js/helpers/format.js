@@ -128,7 +128,6 @@ export async function loadOOSByCapacity(driveTypeId) {
     map[normCap(k)] = Number(v) === 1 ? 1 : 0;
   }
 
-  console.log("OOS MAP (" + driveTypeId + "):", map);
   return map;
 }
 
