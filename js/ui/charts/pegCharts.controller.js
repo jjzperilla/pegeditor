@@ -329,8 +329,39 @@ const FETCH_MULTIPLIER =
 ctx.pegHistoryChart.data.datasets[0].data =
   final.map(h => h.price);
 
+async function loadOosRanges(pegPointId) {
+  try {
+    const res = await ctx.api.loadPointOosRanges(pegPointId);
+    return Array.isArray(res?.ranges) ? res.ranges : [];
+  } catch (e) {
+    console.warn("loadPointOosRanges failed, continuing without OOS flags:", e);
+    return []; // <-- important: do not block chart
+  }
+}
+
+function isDateInAnyRange(yyyyMmDd, ranges) {
+  // ranges: [{start:'2026-02-10', end:'2026-02-12' or null}]
+  for (const r of ranges) {
+    if (!r?.start) continue;
+    const start = r.start;
+    const end = r.end || "9999-12-31"; // open-ended
+    if (yyyyMmDd >= start && yyyyMmDd <= end) return true;
+  }
+  return false;
+}
+ 
+const ranges = await loadOosRanges(Number(point.id));
+
+const flags = final.map(r => isDateInAnyRange(r.date, ranges));  
+ctx.pegHistoryChart.$oosFlags = flags;
+
+// set data as normal (y numbers or {x,y})
+ctx.pegHistoryChart.data.labels = final.map(r => r.date);
+ctx.pegHistoryChart.data.datasets[0].data = final.map(r => r.price);
+  
 refreshChart(ctx.pegHistoryChart);
 
+console.log("PEG HISTORY FINAL OOS COUNT:", flags.filter(Boolean).length);
   // META
   ctx.pegHistoryTitle.textContent =
   `Peg history – ${capacity}`;

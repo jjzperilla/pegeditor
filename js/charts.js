@@ -140,54 +140,55 @@ export function createPegHistoryChart() {
     data: {
       labels: [],
       datasets: [{
-  label: 'Peg price',
-  data: [],
-  borderColor: '#2563eb',
-  borderWidth: 2,
+        label: 'Peg price',
+        data: [],
 
-  tension: 0.25,
-  pointRadius: 5,
-  pointHoverRadius: 8,
-  pointHitRadius: 18,
-  pointBackgroundColor: '#2563eb',
+        // default (non-OOS)
+        borderColor: '#2563eb',
+        borderWidth: 2,
+        tension: 0.25,
 
-  showLine: true
-}]
+        pointRadius: 5,
+        pointHoverRadius: 8,
+        pointHitRadius: 18,
+
+        // ✅ POINTS: red if OOS
+        pointBackgroundColor: (c) => {
+          const flags = c.chart?.$oosFlags || [];
+          return flags[c.dataIndex] ? '#ef4444' : '#2563eb';
+        },
+        pointBorderColor: (c) => {
+          const flags = c.chart?.$oosFlags || [];
+          return flags[c.dataIndex] ? '#ef4444' : '#2563eb';
+        },
+
+        // ✅ SEGMENTS: red if either end is OOS
+        segment: {
+          borderColor: (c) => {
+            const flags = c.chart?.$oosFlags || [];
+            const isOOS = !!(flags[c.p0DataIndex] || flags[c.p1DataIndex]);
+            return isOOS ? '#ef4444' : '#2563eb';
+          }
+        },
+
+        showLine: true
+      }]
     },
-
     options: {
       responsive: true,
       maintainAspectRatio: false,
-
-      animation: {
-        duration: 500,
-        easing: 'easeOutQuart'
-      },
-
-      interaction: {
-        mode: 'nearest',
-        intersect: false
-      },
-
+      interaction: { mode: 'nearest', intersect: false },
       plugins: {
         legend: { display: false },
         tooltip: {
           mode: 'index',
           intersect: false,
-          callbacks: {
-            label: (ctx) => `$${ctx.formattedValue}`
-              
-          }
+          callbacks: { label: (ctx) => `$${ctx.formattedValue}` }
         }
       },
-
       scales: {
-        y: {
-          title: { display: true, text: 'Price (USD)' }
-        },
-        x: {
-          title: { display: true, text: 'Day' }
-        }
+        y: { title: { display: true, text: 'Price (USD)' } },
+        x: { title: { display: true, text: 'Day' } }
       }
     }
   });

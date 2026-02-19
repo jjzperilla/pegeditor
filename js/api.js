@@ -125,6 +125,10 @@ async saveCapacity(capacity, driveTypeId = 1) {
 async myRole() {
   return safeFetch("./api/my_role.php");
 },
+  
+ async loadPointOosRanges(pegPointId) {
+  return safeFetch(`./api/load_point_oos_ranges.php?peg_point_id=${encodeURIComponent(pegPointId)}`);
+}, 
   /* -------------------------------
      MODERN API BRIDGE (READ-ONLY)
      New code may import directly instead

@@ -108,13 +108,8 @@ async function showForbiddenThenReload(message) {
 
 let handlingForbidden = false;
 
-export async function safeFetch(
-  url,
-  options = {},
-  ui = { loading: true, forbidden: "reload" } // default behavior
-) {
-  if (ui.loading) startPageLoading();
-
+export async function safeFetch(url, options = {}) {
+  startPageLoading();
   try {
     const resp = await fetch(url, {
       headers: { "Content-Type": "application/json" },
@@ -123,42 +118,27 @@ export async function safeFetch(
 
     const text = await resp.text();
 
-    let data = null;
     try {
-      data = text ? JSON.parse(text) : null;
-    } catch {
+      const data = text ? JSON.parse(text) : null;
+
+      // forbidden handling (your existing logic)
+      const isForbidden = resp.status === 403 || data?.status === "forbidden";
+      if (isForbidden) {
+        if (!handlingForbidden) {
+          handlingForbidden = true;
+          await showForbiddenThenReload(data?.message || "Editor access required");
+        }
+        return new Promise(() => {});
+      }
+
+      if (!resp.ok) throw new Error(data?.message || `HTTP ${resp.status}`);
+      return data;
+
+    } catch (jsonErr) {
+      console.error("safeFetch invalid JSON:", { url, status: resp.status, text });
       throw new Error("Server returned invalid JSON");
     }
-
-    const isForbidden = resp.status === 403 || data?.status === "forbidden";
-    if (isForbidden) {
-      const msg = data?.message || "Editor access required";
-
-      //background calls should NOT reload the page
-      if (ui.forbidden === "ignore") return data;
-
-      if (ui.forbidden === "throw") {
-        const err = new Error(msg);
-        err.code = "FORBIDDEN";
-        throw err;
-      }
-
-      // forbidden === "reload" (only for explicit actions)
-      if (!handlingForbidden) {
-        handlingForbidden = true;
-        await showForbiddenThenReload(msg);
-      }
-
-      return new Promise(() => {});
-    }
-
-    if (!resp.ok) {
-      throw new Error(data?.message || `HTTP ${resp.status}`);
-    }
-
-    return data;
-
   } finally {
-    if (ui.loading) finishPageLoading();
+    finishPageLoading();
   }
 }
