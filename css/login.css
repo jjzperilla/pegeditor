@@ -42,7 +42,7 @@
   .login-subtitle {
     font-size: 13px;
     color: var(--muted);
-    margin-bottom: 22px;
+    margin-bottom: 15px;
   }
 
   .field {
@@ -62,6 +62,9 @@
     color: var(--text);
     font-size: 14px;
   }
+.passwordInput {
+  margin-top: 10px;
+}
 
   input::placeholder {
     color: var(--muted);
@@ -75,7 +78,7 @@
   .toggle-password {
     position: absolute;
     right: 10px;
-    top: 50%;
+    top: 78%;
     transform: translateY(-50%);
     background: none;
     border: none;
@@ -98,7 +101,7 @@
 
   button.login-btn {
     width: 100%;
-    margin-top: 14px;
+    margin-top: 5px;
     padding: 11px;
     border: none;
     border-radius: 8px;
