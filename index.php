@@ -787,6 +787,7 @@ if (!isset($_SESSION['auth']) || $_SESSION['auth'] !== true) {
         <div class="user-add">
           <input id="newUseruser" type="text" placeholder="User name" />
           <input id="newUserPassword" type="password" placeholder="Password" class="add-usr-input" />
+          <input id="newUserEmail" type="text" placeholder="Email" class="add-usr-input" />
           <button id="btnAddUser" type="button" class="ws-btn">Add User</button>
         </div>
 

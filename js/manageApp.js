@@ -27,6 +27,7 @@ document.addEventListener("DOMContentLoaded", () => {
   const newUseruser = document.getElementById("newUseruser");
   const newUserPass = document.getElementById("newUserPassword");
   const addUserBtn = document.getElementById("btnAddUser");
+  const newUserEmail = document.getElementById("newUserEmail"); 
   
   // EMAIL NOTIFICATIONS
 const oosEmailList = document.getElementById("oosEmailList");
@@ -481,24 +482,42 @@ function renderUsers(users) {
     const row = document.createElement("div");
     row.className = "user-list";
 
-    // We use user_name (not email) since your PHP uses user_name
     row.innerHTML = `
-      <div class="user-wrapper">
+      <div class="user-wrapper" style="display:flex; gap:8px;">
         <input class="user-name" value="${escapeHTML(u.user_name || u.user || u.label || "")}" />
-        <input class="user-newpass" type="password" placeholder="New password (optional)" />
+
+        <input class="user-email" type="email" placeholder="Email (optional)"
+               value="${escapeHTML(u.email || "")}" />
+
+        <div style="display:flex; gap:8px; align-items:center;">
+          <input class="user-newpass" type="password" placeholder="New password (optional)" />
+          <button class="user-togglepass" type="button">Show</button>
+        </div>
       </div>
-     
 
       <div class="ws-actions">
         <button class="user-save" type="button">Save</button>
         <button class="user-delete" type="button">Delete</button>
       </div>
-       <div class="ws-meta" hidden>ID: ${u.id}</div>
+
+      <div class="ws-meta" hidden>ID: ${u.id}</div>
     `;
 
-    //updates name + optional password
+    // Show/Hide password (ONLY for the "new password" field)
+    const passInput = row.querySelector(".user-newpass");
+    const btnToggle = row.querySelector(".user-togglepass");
+    if (btnToggle && passInput) {
+      btnToggle.addEventListener("click", () => {
+        const isHidden = passInput.type === "password";
+        passInput.type = isHidden ? "text" : "password";
+        btnToggle.textContent = isHidden ? "Hide" : "Show";
+      });
+    }
+
+    // Save (update name + optional email + optional password)
     row.querySelector(".user-save")?.addEventListener("click", async () => {
       const user_name = (row.querySelector(".user-name")?.value || "").trim();
+      const email = (row.querySelector(".user-email")?.value || "").trim();
       const password = (row.querySelector(".user-newpass")?.value || "").trim();
 
       if (!user_name) return showMsg(userMsgEl, "User name required", true);
@@ -509,11 +528,18 @@ function renderUsers(users) {
           body: JSON.stringify({
             user_id: u.id,
             user_name,
-            password // optional; backend ignores if empty
+            email,     // optional
+            password   // optional
           })
         });
 
-        row.querySelector(".user-newpass").value = "";
+        // clear only the password box after save
+        if (passInput) {
+          passInput.value = "";
+          passInput.type = "password";
+          if (btnToggle) btnToggle.textContent = "Show";
+        }
+
         showMsg(userMsgEl, "User saved");
         await loadUsersCache();
         loadUsers();
@@ -522,6 +548,7 @@ function renderUsers(users) {
       }
     });
 
+    // Delete
     row.querySelector(".user-delete")?.addEventListener("click", async () => {
       if (!confirm(`Delete user ID ${u.id}?`)) return;
 
@@ -545,32 +572,36 @@ function renderUsers(users) {
 
 
 
-  if (addUserBtn) {
-    addUserBtn.addEventListener("click", async () => {
-      const user = (newUseruser?.value || "").trim();
-      const password = (newUserPass?.value || "").trim();
 
-      if (!user || !password) {
-        return showMsg(userMsgEl, "user and password required", true);
-      }
+if (addUserBtn) {
+  addUserBtn.addEventListener("click", async () => {
+    const user = (newUseruser?.value || "").trim();
+    const password = (newUserPass?.value || "").trim();
+    const email = (newUserEmail?.value || "").trim(); // optional
 
-      try {
-        await fetchJSON("api/user_create.php", {
-          method: "POST",
-          body: JSON.stringify({ user, password }),
-        });
+    if (!user || !password) {
+      return showMsg(userMsgEl, "user and password required", true);
+    }
 
-        if (newUseruser) newUseruser.value = "";
-        if (newUserPass) newUserPass.value = "";
+    try {
+      await fetchJSON("api/user_create.php", {
+        method: "POST",
+        body: JSON.stringify({ user, password, email }), // include email
+      });
 
-        showMsg(userMsgEl, "User added");
-        await loadUsersCache(); // refresh cache for member dropdown
-        loadUsers();
-      } catch (e) {
-        showMsg(userMsgEl, e.message || "Add failed", true);
-      }
-    });
-  } else {
+      if (newUseruser) newUseruser.value = "";
+      if (newUserPass) newUserPass.value = "";
+      if (newUserEmail) newUserEmail.value = "";
+
+      showMsg(userMsgEl, "User added");
+      await loadUsersCache();
+      loadUsers();
+    } catch (e) {
+      showMsg(userMsgEl, e.message || "Add failed", true);
+    }
+  });
+}
+ else {
     console.warn("[manageApp] Missing #btnAddUser (no handler attached)");
   }
   

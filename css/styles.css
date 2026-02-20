@@ -2640,7 +2640,7 @@ justify-content: center;
 }
 
 /* WS name input specifically */
-.manage-app-modal .ws-row, .ws-name, .user-name, .er-email{
+.manage-app-modal .ws-row, .ws-name, .user-name, .er-email, .user-email, .user-newpass{
     width: 100%;
     padding: 7px 10px;
     border-radius: 10px;
@@ -2677,6 +2677,7 @@ justify-content: center;
 .manage-app-modal .user-delete,
 .manage-app-modal .er-save,
 .manage-app-modal .member-refresh,
+.manage-app-modal .user-togglepass,
 .manage-app-modal .er-delete{
   height: 34px;
   padding: 0 10px;

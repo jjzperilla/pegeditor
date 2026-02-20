@@ -12,7 +12,8 @@ if ($user_id <= 0) {
   exit;
 }
 
-$isAdmin = ($user_id === 1);
+// Prefer role-based admin check (not user_id === 1)
+$isAdmin = (isset($_SESSION['role']) && $_SESSION['role'] === 'admin');
 if (!$isAdmin) {
   http_response_code(403);
   echo json_encode(["status"=>"error","message"=>"Admin only"]);
@@ -20,7 +21,7 @@ if (!$isAdmin) {
 }
 
 $stmt = $db->prepare("
-  SELECT id, user_name
+  SELECT id, user_name, email
   FROM users
   WHERE is_active = 1
   ORDER BY id ASC
@@ -32,7 +33,9 @@ $rows = [];
 while ($r = $res->fetch_assoc()) {
   $rows[] = [
     "id" => (int)$r["id"],
-    "label" => $r["user_name"] ?: ("User #" . $r["id"])
+    "user_name" => (string)($r["user_name"] ?? ""),
+    "email" => (string)($r["email"] ?? ""),
+    "label" => ($r["user_name"] ?: ("User #" . $r["id"]))
   ];
 }
 
