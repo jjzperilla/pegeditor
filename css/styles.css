@@ -2705,6 +2705,20 @@ justify-content: center;
   box-shadow: 0 10px 18px rgba(2,6,23,.08);
 }
 
+button.user-save, .user-delete {
+    height: 50px !important;
+    width: 90px;
+}
+
+.manage-app-modal .ws-actions-user {
+    display: grid;
+    gap: 8px;
+    align-items: center;
+    justify-content: flex-end;
+    height: 100%;
+}
+
+
 /* Danger buttons (Delete) */
 .manage-app-modal .ws-delete,
 .manage-app-modal .user-delete,

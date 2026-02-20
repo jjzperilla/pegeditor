@@ -495,7 +495,7 @@ function renderUsers(users) {
         </div>
       </div>
 
-      <div class="ws-actions">
+      <div class="ws-actions-user">
         <button class="user-save" type="button">Save</button>
         <button class="user-delete" type="button">Delete</button>
       </div>
